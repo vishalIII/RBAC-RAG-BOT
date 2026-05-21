@@ -21,8 +21,7 @@ Optional .env:
    PDF_PATH=src/data/pune_travel_guide_sample.pdf
 
 
-
-
+http://localhost:6333/dashboard#/welcome
 
 To deactivate enviroment:
 deactivate
