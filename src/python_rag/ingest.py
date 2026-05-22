@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -33,9 +34,7 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 
-DEFAULT_PDF_PATH = (
-    BASE_DIR / "data" / "pune_travel_guide_sample.pdf"
-)
+DEFAULT_PDF_PATH = BASE_DIR / "data" / "pune_travel_guide_sample.pdf"
 
 COLLECTION_NAME = os.getenv(
     "QDRANT_COLLECTION",
@@ -80,20 +79,104 @@ def recreate_collection() -> None:
 
     collections = client.get_collections().collections
 
-    collection_names = [
-        collection.name
-        for collection in collections
-    ]
+    collection_names = [collection.name for collection in collections]
 
     if COLLECTION_NAME in collection_names:
-        print(
-            f"Deleting existing collection: "
-            f"{COLLECTION_NAME}"
-        )
+        print(f"Deleting existing collection: " f"{COLLECTION_NAME}")
 
-        client.delete_collection(
-            collection_name=COLLECTION_NAME
-        )
+        client.delete_collection(collection_name=COLLECTION_NAME)
+
+
+# =========================================================
+# CALCULATING CONFIDENCE SCORE
+# =========================================================
+def calculate_confidence_score(content: str) -> float:
+    """
+    Better heuristic quality score.
+    Returns score between 0.0 and 1.0
+    """
+
+    content = content.strip()
+
+    if not content:
+        return 0.0
+
+    score = 0.5
+
+    # ==========================================
+    # WORD COUNT
+    # ==========================================
+
+    words = content.split()
+    word_count = len(words)
+
+    if word_count >= 150:
+        score += 0.25
+
+    elif word_count >= 80:
+        score += 0.18
+
+    elif word_count >= 40:
+        score += 0.10
+
+    elif word_count < 15:
+        score -= 0.15
+
+    # ==========================================
+    # SENTENCE QUALITY
+    # ==========================================
+
+    sentence_count = len(re.findall(r"[.!?]", content))
+
+    if sentence_count >= 3:
+        score += 0.10
+
+    # ==========================================
+    # UNIQUE WORD RATIO
+    # ==========================================
+
+    unique_ratio = len(set(words)) / max(word_count, 1)
+
+    if unique_ratio > 0.45:
+        score += 0.10
+
+    elif unique_ratio < 0.20:
+        score -= 0.10
+
+    # ==========================================
+    # OCR / CORRUPTION
+    # ==========================================
+
+    corruption_chars = ["�", "\x00"]
+
+    corruption_count = sum(content.count(c) for c in corruption_chars)
+
+    if corruption_count > 0:
+        score -= min(0.30, corruption_count * 0.05)
+
+    # ==========================================
+    # SPECIAL CHARACTER RATIO
+    # ==========================================
+
+    special_chars = sum(1 for c in content if not c.isalnum() and not c.isspace())
+
+    special_ratio = special_chars / max(len(content), 1)
+
+    if special_ratio > 0.45:
+        score -= 0.10
+
+    # ==========================================
+    # TABLE BONUS
+    # ==========================================
+
+    if "|" in content:
+        score += 0.05
+
+    # ==========================================
+    # FINAL CLAMP
+    # ==========================================
+
+    return round(max(0.0, min(score, 1.0)), 2)
 
 
 # =========================================================
@@ -143,42 +226,33 @@ def build_metadata(
         "parent_id": pdf_path.stem,
         "source": pdf_path.name,
         "page": chunk.metadata.get("page"),
-
         # =================================================
         # DOCUMENT STRUCTURE
         # =================================================
         "section": content[:80],
-
         # =================================================
         # DOCUMENT TYPE
         # =================================================
         "doc_type": "travel_guide",
-
         # =================================================
         # RBAC / ACCESS CONTROL
         # =================================================
         "department": "tourism",
-
         "access_level": "internal",
-
         "allowed_roles": [
             "tourism_admin",
             "tourism_employee",
             "manager",
         ],
-
         # =================================================
         # GOVERNANCE
         # =================================================
         "author": "Pune Tourism Board",
-
         "created_at": datetime.utcnow().isoformat(),
-
         # =================================================
         # LANGUAGE
         # =================================================
         "language": "en",
-
         # =================================================
         # TAGGING
         # =================================================
@@ -187,22 +261,18 @@ def build_metadata(
             "tourism",
             "pune",
         ],
-
         # =================================================
         # ENTITY EXTRACTION
         # =================================================
         "entities": extract_entities(content),
-
         # =================================================
         # QUALITY
         # =================================================
-        "confidence_score": 0.95,
-
+        "confidence_score": calculate_confidence_score(content),
         # =================================================
         # MULTIMODAL FLAGS
         # =================================================
         "table_present": "|" in content,
-
         "image_present": False,
     }
 
@@ -216,9 +286,7 @@ def ingest_pdf() -> None:
     pdf_path = get_pdf_path()
 
     if not pdf_path.exists():
-        raise FileNotFoundError(
-            f"PDF not found: {pdf_path}"
-        )
+        raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
     print("\nLoading PDF...\n")
 
@@ -281,35 +349,22 @@ def ingest_pdf() -> None:
     # STORE IN QDRANT
     # =====================================================
 
-    print(
-        "\nCreating embeddings and "
-        "storing in Qdrant...\n"
-    )
+    print("\nCreating embeddings and " "storing in Qdrant...\n")
 
     try:
         QdrantVectorStore.from_documents(
             documents=chunks,
-
             embedding=dense_embeddings,
-
             sparse_embedding=sparse_embeddings,
-
             retrieval_mode=RetrievalMode.HYBRID,
-
             url=QDRANT_URL,
-
             collection_name=COLLECTION_NAME,
         )
 
     except Exception as exc:
-        raise RuntimeError(
-            "Could not store documents in Qdrant."
-        ) from exc
+        raise RuntimeError("Could not store documents in Qdrant.") from exc
 
-    print(
-        f"\nPDF stored successfully "
-        f"in collection: {COLLECTION_NAME}"
-    )
+    print(f"\nPDF stored successfully " f"in collection: {COLLECTION_NAME}")
 
 
 # =========================================================
