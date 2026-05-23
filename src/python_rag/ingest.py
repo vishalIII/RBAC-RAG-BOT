@@ -28,10 +28,8 @@ from qdrant_client import QdrantClient
 
 load_dotenv()
 
-# =========================================================
-# CONFIG
-# =========================================================
-
+# =================================
+# config
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 DEFAULT_PDF_PATH = BASE_DIR / "data" / "pune_travel_guide_sample.pdf"
@@ -52,8 +50,7 @@ EMBEDDING_MODEL = os.getenv(
 )
 
 # =========================================================
-# HELPERS
-# =========================================================
+# Helpers
 
 
 def get_pdf_path() -> Path:
@@ -87,101 +84,114 @@ def recreate_collection() -> None:
         client.delete_collection(collection_name=COLLECTION_NAME)
 
 
-# =========================================================
-# CALCULATING CONFIDENCE SCORE
-# =========================================================
-def calculate_confidence_score(content: str) -> float:
-    """
-    Better heuristic quality score.
-    Returns score between 0.0 and 1.0
-    """
-
+# ==================================================================================================
+def calculate_confidence_score(
+    content: str,
+    *,
+    table_present: bool = False,
+    entities: list = None,
+    page: int | None = None,
+    language: str = "en",
+    image_present: bool = False,
+) -> float:
     content = content.strip()
-
     if not content:
         return 0.0
 
     score = 0.5
-
-    # ==========================================
-    # WORD COUNT
-    # ==========================================
-
     words = content.split()
     word_count = len(words)
 
-    if word_count >= 150:
-        score += 0.25
-
+    # =====================================================================
+    # WORD COUNT — image chunks get a pass
+    if image_present and word_count < 15:
+        score += 0.05  # don't penalize caption-only chunks
+    elif word_count >= 150:
+        score += 0.20
     elif word_count >= 80:
-        score += 0.18
-
+        score += 0.15
     elif word_count >= 40:
         score += 0.10
+    elif word_count >= 15:
+        score += 0.05
+    elif word_count >= 5:
+        score += 0.0
+    else:
+        score -= 0.20
 
-    elif word_count < 15:
-        score -= 0.15
-
-    # ==========================================
+    # ===================================================================================
     # SENTENCE QUALITY
-    # ==========================================
 
     sentence_count = len(re.findall(r"[.!?]", content))
-
     if sentence_count >= 3:
-        score += 0.10
+        score += 0.08
+    elif sentence_count >= 1:
+        score += 0.03
 
-    # ==========================================
+    # =================================================================
     # UNIQUE WORD RATIO
-    # ==========================================
 
     unique_ratio = len(set(words)) / max(word_count, 1)
-
     if unique_ratio > 0.45:
-        score += 0.10
-
+        score += 0.08
     elif unique_ratio < 0.20:
-        score -= 0.10
+        score -= 0.08
 
-    # ==========================================
+    # ======================================================================
+    # ENTITY RICHNESS — factual density signal
+
+    if entities:
+        entity_count = len(entities)
+        if entity_count >= 5:
+            score += 0.10
+        elif entity_count >= 2:
+            score += 0.05
+        # entity density: entities per 100 words
+        density = (entity_count / max(word_count, 1)) * 100
+        if density > 8:
+            score += 0.05  # very fact-dense chunk
+
+    # ================================================================================
+    # TABLE — use pre-computed flag, not re-check
+
+    if table_present:
+        pipe_count = content.count("|")
+        if pipe_count >= 3:
+            score += 0.07
+
+    # ===================================================================
+    # PAGE METADATA — None often means header/TOC
+
+    if page is None:
+        score -= 0.05
+
+    # ==========================================================================
+    # LANGUAGE
+
+    if language != "en":
+        score -= 0.10  # unexpected language in English corpus
+
+    # =========================================================
     # OCR / CORRUPTION
-    # ==========================================
 
-    corruption_chars = ["�", "\x00"]
-
+    corruption_chars = ["", "\x00"]
     corruption_count = sum(content.count(c) for c in corruption_chars)
-
     if corruption_count > 0:
-        score -= min(0.30, corruption_count * 0.05)
+        score -= min(0.40, corruption_count * 0.08)
 
     # ==========================================
     # SPECIAL CHARACTER RATIO
-    # ==========================================
 
     special_chars = sum(1 for c in content if not c.isalnum() and not c.isspace())
-
     special_ratio = special_chars / max(len(content), 1)
-
     if special_ratio > 0.45:
         score -= 0.10
-
-    # ==========================================
-    # TABLE BONUS
-    # ==========================================
-
-    if "|" in content:
-        score += 0.05
-
-    # ==========================================
-    # FINAL CLAMP
-    # ==========================================
 
     return round(max(0.0, min(score, 1.0)), 2)
 
 
-# =========================================================
-# METADATA EXTRACTION
-# =========================================================
+# ============================================================
+# Metadata Extraction
 
 
 def extract_entities(content: str) -> list[str]:
@@ -216,27 +226,36 @@ def build_metadata(
 ) -> dict:
 
     content = chunk.page_content
+    page = chunk.metadata.get("page")
+    table_present = content.count("|") >= 3
+    image_present = False
+    entities = extract_entities(content)
+
+    confidence_score = calculate_confidence_score(
+        content,
+        table_present=table_present,
+        entities=entities,
+        page=page,
+        language="en",
+        image_present=image_present,
+    )
 
     return {
-        # =================================================
-        # DOCUMENT TRACEABILITY
-        # =================================================
+        # =================================================================
+        # Document Traceability
         "chunk_id": chunk_index,
         "document_id": str(uuid4()),
         "parent_id": pdf_path.stem,
         "source": pdf_path.name,
-        "page": chunk.metadata.get("page"),
-        # =================================================
+        "page": page,
+        # ==========================================================================
         # DOCUMENT STRUCTURE
-        # =================================================
         "section": content[:80],
-        # =================================================
+        # =====================================================================
         # DOCUMENT TYPE
-        # =================================================
         "doc_type": "travel_guide",
-        # =================================================
+        # ==========================================================
         # RBAC / ACCESS CONTROL
-        # =================================================
         "department": "tourism",
         "access_level": "internal",
         "allowed_roles": [
@@ -244,42 +263,31 @@ def build_metadata(
             "tourism_employee",
             "manager",
         ],
-        # =================================================
+        # ===================================================================
         # GOVERNANCE
-        # =================================================
         "author": "Pune Tourism Board",
         "created_at": datetime.utcnow().isoformat(),
-        # =================================================
-        # LANGUAGE
-        # =================================================
         "language": "en",
-        # =================================================
-        # TAGGING
-        # =================================================
         "tags": [
             "travel",
             "tourism",
             "pune",
         ],
-        # =================================================
+        # ==============================================================
         # ENTITY EXTRACTION
-        # =================================================
-        "entities": extract_entities(content),
-        # =================================================
+        "entities": entities,
+        # ==================================================================
         # QUALITY
-        # =================================================
-        "confidence_score": calculate_confidence_score(content),
-        # =================================================
+        "confidence_score": confidence_score,
+        # ======================================================================
         # MULTIMODAL FLAGS
-        # =================================================
-        "table_present": "|" in content,
-        "image_present": False,
+        "table_present": table_present,
+        "image_present": image_present,
     }
 
 
-# =========================================================
-# INGESTION
-# =========================================================
+# ========================================
+# Ingestion
 
 
 def ingest_pdf() -> None:
@@ -296,9 +304,8 @@ def ingest_pdf() -> None:
 
     print(f"Pages loaded: {len(documents)}")
 
-    # =====================================================
+    # ==================================================================
     # CHUNKING
-    # =====================================================
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
@@ -309,9 +316,8 @@ def ingest_pdf() -> None:
 
     print(f"Chunks created: {len(chunks)}")
 
-    # =====================================================
+    # ==================================================================================
     # METADATA ENRICHMENT
-    # =====================================================
 
     print("\nAdding metadata...\n")
 
@@ -325,9 +331,8 @@ def ingest_pdf() -> None:
 
         chunk.metadata.update(metadata)
 
-    # =====================================================
+    # ====================================================================================
     # EMBEDDINGS
-    # =====================================================
 
     print("\nLoading embedding models...\n")
 
@@ -339,15 +344,13 @@ def ingest_pdf() -> None:
         model_name="Qdrant/bm25",
     )
 
-    # =====================================================
+    # ===========================================================================================
     # COLLECTION RESET
-    # =====================================================
 
     recreate_collection()
 
-    # =====================================================
+    # ==============================================================================
     # STORE IN QDRANT
-    # =====================================================
 
     print("\nCreating embeddings and " "storing in Qdrant...\n")
 
@@ -367,9 +370,8 @@ def ingest_pdf() -> None:
     print(f"\nPDF stored successfully " f"in collection: {COLLECTION_NAME}")
 
 
-# =========================================================
-# MAIN
-# =========================================================
+# ========================================================================================
+# Main
 
 if __name__ == "__main__":
     ingest_pdf()

@@ -1,5 +1,6 @@
 import os
 import sys
+import cohere
 from functools import lru_cache
 from typing import List
 
@@ -46,7 +47,14 @@ OLLAMA_BASE_URL = os.getenv(
     "http://localhost:11434",
 )
 
+COHERE_API_KEY = os.getenv("COHERE_API_KEY")
+if not COHERE_API_KEY:
+    raise ValueError("COHERE_API_KEY is missing.")
+
 NO_CONTEXT_RESPONSE = "I could not find the answer in the documents."
+
+
+co = cohere.Client(api_key=COHERE_API_KEY)
 
 
 def _debug_print(value: object = "") -> None:
@@ -131,46 +139,175 @@ def build_search_filter(
 
 
 def rerank_documents(
+    query: str,
     documents_with_scores,
+    *,
+    top_k: int = 7,
 ) -> List[Document]:
     """
-    Simple reranking strategy.
-
-    Replace later with:
-    - Cohere Rerank
-    - BGE Reranker
-    - Cross encoder
+    Industry-standard two-stage reranking.
+    
+    Pre-filter  → remove only corrupt/empty garbage (very low bar)
+    Cohere      → semantic relevance (does the heavy lifting)
+    Post-filter → trust Cohere score only, confidence is a blend signal only
     """
 
+    # =====================================================
+    # PRE FILTERING — garbage removal only
+    # Confidence score is NOT a relevance signal here.
+    # Only remove truly broken chunks.
+    # =====================================================
+    CORRUPTION_CONFIDENCE_MAX = 0.20   # only reject actual garbage
+    VECTOR_SCORE_MAX = 2.0             # wide net — let Cohere decide
+
     filtered_docs = []
+    rejected_docs = []
 
     for doc, score in documents_with_scores:
-
         metadata = doc.metadata
+        confidence_score = metadata.get("confidence_score", 0.5)
 
-        confidence_score = metadata.get(
-            "confidence_score",
-            0.5,
-        )
-
-        # =================================================
-        # HYBRID SEARCH SCORE
-        # Lower is better
-        # =================================================
-
-        if score > 1.2:
+        # Reject corrupted/empty chunks only
+        if confidence_score < CORRUPTION_CONFIDENCE_MAX:
+            rejected_docs.append((doc, score, "corruption"))
             continue
 
-        # =================================================
-        # QUALITY FILTER
-        # =================================================
-
-        if confidence_score < 0.7:
+        # Reject astronomically bad vector matches only
+        if score > VECTOR_SCORE_MAX:
+            rejected_docs.append((doc, score, "vector_score"))
             continue
 
         filtered_docs.append(doc)
 
-    return filtered_docs
+    # =====================================================
+    # FALLBACK — if everything got filtered, return best
+    # vector matches so user never gets empty response
+    # =====================================================
+    if not filtered_docs:
+        _debug_print("WARNING: All docs filtered — falling back to top vector matches")
+        filtered_docs = [
+            doc for doc, score in sorted(
+                documents_with_scores,
+                key=lambda x: x[1],
+            )[:top_k]
+        ]
+
+    # =====================================================
+    # PREPARE DOCUMENTS FOR COHERE
+    # Include entities in context — helps Cohere score better
+    # =====================================================
+    cohere_docs = []
+    for doc in filtered_docs:
+        metadata = doc.metadata
+        source = metadata.get("source", "Unknown")
+        section = metadata.get("section", "Unknown")
+        entities = metadata.get("entities", [])
+
+        entity_hint = ""
+        if entities:
+            entity_hint = f"ENTITIES: {', '.join(entities)}\n"
+
+        cohere_docs.append(
+            f"SOURCE: {source}\n"
+            f"SECTION: {section}\n"
+            f"{entity_hint}"
+            f"\nCONTENT:\n{doc.page_content}"
+        )
+
+    # =====================================================
+    # COHERE RERANK — the actual relevance engine
+    # =====================================================
+    try:
+        response = co.rerank(
+            model="rerank-v3.5",
+            query=query,
+            documents=cohere_docs,
+            top_n=min(top_k, len(cohere_docs)),
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Cohere reranking failed: {exc}") from exc
+
+    # =====================================================
+    # POST-RERANK — trust Cohere, use confidence as blend
+    # Do NOT gate hard on confidence here.
+    # =====================================================
+    RERANK_SCORE_MIN = 0.05   # very low — only reject totally irrelevant
+
+    reranked_docs = []
+    for result in response.results:
+
+        # Only reject completely irrelevant results
+        if result.relevance_score < RERANK_SCORE_MIN:
+            continue
+
+        doc = filtered_docs[result.index]
+        confidence = doc.metadata.get("confidence_score", 0.5)
+
+        # Confidence is a blend signal only — not a gate
+        # 85% Cohere (semantic) + 15% confidence (chunk quality)
+        combined = (0.85 * result.relevance_score) + (0.15 * confidence)
+
+        doc.metadata["rerank_score"] = round(result.relevance_score, 3)
+        doc.metadata["combined_score"] = round(combined, 3)
+        reranked_docs.append(doc)
+
+    # =====================================================
+    # FINAL FALLBACK — if Cohere returns nothing useful
+    # Never return empty — return best vector matches
+    # =====================================================
+    if not reranked_docs:
+        _debug_print("WARNING: No docs passed rerank — falling back to filtered_docs")
+        for doc in filtered_docs[:top_k]:
+            doc.metadata["rerank_score"] = 0.0
+            doc.metadata["combined_score"] = doc.metadata.get("confidence_score", 0.5)
+            reranked_docs.append(doc)
+
+    # =====================================================
+    # DEBUG
+    # =====================================================
+    _debug_print("\n================ RERANK DEBUG ================\n")
+    _debug_print(f"Vector search returned : {len(list(documents_with_scores))} docs")
+    _debug_print(f"After pre-filter       : {len(filtered_docs)} docs")
+    _debug_print(f"After Cohere           : {len(reranked_docs)} docs")
+    _debug_print(f"Rejected               : {len(rejected_docs)} docs")
+
+    for index, doc in enumerate(reranked_docs, start=1):
+        metadata = doc.metadata
+        _debug_print(
+            f"Rank {index} | "
+            f"Rerank: {metadata.get('rerank_score', 0):.3f} | "
+            f"Confidence: {metadata.get('confidence_score', 0):.2f} | "
+            f"Combined: {metadata.get('combined_score', 0):.3f} | "
+            f"Words: {len(doc.page_content.split())} | "
+            f"Entities: {len(metadata.get('entities', []))} | "
+            f"Table: {metadata.get('table_present', False)} | "
+            f"Page: {metadata.get('page', 'N/A')}"
+        )
+        _debug_print(doc.page_content[:300])
+
+    return reranked_docs
+
+
+def deduplicate_documents(
+    documents: List[Document],
+) -> List[Document]:
+
+    seen = set()
+
+    unique_docs = []
+
+    for doc in documents:
+
+        content = doc.page_content.strip()
+
+        if content in seen:
+            continue
+
+        seen.add(content)
+
+        unique_docs.append(doc)
+
+    return unique_docs
 
 
 def build_context(
@@ -257,7 +394,6 @@ def ask_question(
 
     # =====================================================
     # BUILD FILTERS
-    # =====================================================
 
     search_filter = build_search_filter(
         user_role=user_role,
@@ -271,12 +407,11 @@ def ask_question(
 
     # =====================================================
     # RETRIEVAL
-    # =====================================================
 
     try:
         documents_with_scores = vector_store.similarity_search_with_score(
             query=question,
-            k=10,
+            k=15,
             filter=search_filter,
         )
 
@@ -293,7 +428,6 @@ def ask_question(
 
     # =====================================================
     # DEBUG
-    # =====================================================
 
     for index, (doc, score) in enumerate(
         documents_with_scores,
@@ -307,11 +441,16 @@ def ask_question(
 
         _debug_print(doc.page_content[:300])
 
-    # =====================================================
+    # ===============================================
     # RERANKING
-    # =====================================================
 
-    reranked_docs = rerank_documents(documents_with_scores)
+    reranked_docs = rerank_documents(
+        question,
+        documents_with_scores,
+        top_k=7,
+    )
+
+    reranked_docs = deduplicate_documents(reranked_docs)
 
     if not reranked_docs:
         return {
@@ -319,9 +458,8 @@ def ask_question(
             "sources": [],
         }
 
-    # =====================================================
+    # =============================================
     # CONTEXT BUILDING
-    # =====================================================
 
     context = build_context(reranked_docs)
 
@@ -329,9 +467,8 @@ def ask_question(
 
     _debug_print(context[:3000])
 
-    # =====================================================
+    # ==============================================
     # PROMPT
-    # =====================================================
 
     llm_question = question
 
@@ -369,9 +506,8 @@ Answer:
         llm_question=llm_question,
     )
 
-    # =====================================================
+    # =========================================
     # CITATIONS
-    # =====================================================
 
     citations = []
 
@@ -391,3 +527,4 @@ Answer:
         "answer": answer,
         "sources": citations,
     }
+
