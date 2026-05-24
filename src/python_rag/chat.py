@@ -338,9 +338,9 @@ def build_context(
         content = doc.page_content
 
         formatted_chunk = f"""
+SECTION:{section}
 SOURCE: {source}
 PAGE: {page}
-SECTION: {section}
 
 CONTENT:
 {content}
@@ -375,7 +375,6 @@ def clean_answer(
     cleaned_answer = "\n".join(lines).strip()
 
     return cleaned_answer or answer.strip()
-
 
 async def ask_question_stream(
     question: str,
@@ -462,76 +461,22 @@ Answer using only the context above.
     # =========================================
     # STREAMING GENERATOR
 
-    # async def token_generator():
-
-    #     full_answer = ""
-    #     buffer = ""
-
-    #     try:
-        
-    #         async for chunk in _llm().astream(prompt):
-            
-    #             token = chunk.content
-                
-    #             # token = chunk.content
-
-    #             if not token or not token.strip():
-    #                 continue
-    
-    #             full_answer += token
-    #             buffer += token
-    
-    #             # Send every ~20 chars
-    #             if len(buffer) >= 20 and token.endswith((" ", ".", "!", "?")):
-                
-    #                 yield f"data: {buffer}\n\n"
-    
-    #                 buffer = ""
-    
-    #         # Send remaining text
-    #         if buffer:
-    #             yield f"data: {buffer}\n\n"
-    
-    #         yield "data: [DONE]\n\n"
-    
-    #     except Exception:
-        
-    #         yield "data: Error generating response.\n\n"
-
     async def token_generator():
 
-        buffer = ""
+        full_answer = ""
 
         try:
-        
+
             async for chunk in _llm().astream(prompt):
-            
+
                 token = chunk.content
-    
-                if not token:
-                    continue
-                
-                # Skip exact duplicates
-                if token == buffer[-len(token):]:
-                    continue
-                
-                buffer += token
-    
-                # Flush periodically
-                if len(buffer) >= 40:
-                
-                    yield f"data: {buffer}\n\n"
-    
-                    buffer = ""
-    
-            if buffer:
-                yield f"data: {buffer}\n\n"
-    
-            yield "data: [DONE]\n\n"
-    
-        except Exception as exc:
-        
-            yield f"data: Error: {str(exc)}\n\n"
+
+                full_answer += token
+
+                yield f"data: {token}\n\n"
+
+        except Exception:
+
+            yield "data: Error generating response.\n\n"
 
     return token_generator()
-
