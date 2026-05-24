@@ -377,13 +377,13 @@ def clean_answer(
     return cleaned_answer or answer.strip()
 
 
-def ask_question(
+async def ask_question_stream(
     question: str,
     *,
     user_role: str,
     department: str | None = None,
     doc_type: str | None = None,
-) -> dict:
+):
 
     question = question.strip()
 
@@ -392,8 +392,8 @@ def ask_question(
 
     vector_store = _vector_store()
 
-    # =====================================================
-    # BUILD FILTERS
+    # =========================================
+    # FILTERS
 
     search_filter = build_search_filter(
         user_role=user_role,
@@ -401,47 +401,25 @@ def ask_question(
         doc_type=doc_type,
     )
 
-    _debug_print("\n================ FILTERS ================\n")
-
-    _debug_print(search_filter)
-
-    # =====================================================
+    # =========================================
     # RETRIEVAL
 
-    try:
-        documents_with_scores = vector_store.similarity_search_with_score(
+    documents_with_scores = (
+        vector_store.similarity_search_with_score(
             query=question,
             k=15,
             filter=search_filter,
         )
-
-    except Exception as exc:
-        raise RuntimeError("Could not retrieve documents.") from exc
-
-    _debug_print("\n================ RETRIEVAL DEBUG " "================\n")
+    )
 
     if not documents_with_scores:
-        return {
-            "answer": NO_CONTEXT_RESPONSE,
-            "sources": [],
-        }
 
-    # =====================================================
-    # DEBUG
+        async def no_context():
+            yield f"data: {NO_CONTEXT_RESPONSE}\n\n"
 
-    for index, (doc, score) in enumerate(
-        documents_with_scores,
-        start=1,
-    ):
+        return no_context()
 
-        _debug_print(f"\nDocument {index}")
-        _debug_print(f"Score: {score}")
-
-        _debug_print(f"Metadata: " f"{doc.metadata}")
-
-        _debug_print(doc.page_content[:300])
-
-    # ===============================================
+    # =========================================
     # RERANKING
 
     reranked_docs = rerank_documents(
@@ -450,30 +428,24 @@ def ask_question(
         top_k=7,
     )
 
-    reranked_docs = deduplicate_documents(reranked_docs)
+    reranked_docs = deduplicate_documents(
+        reranked_docs
+    )
 
     if not reranked_docs:
-        return {
-            "answer": NO_CONTEXT_RESPONSE,
-            "sources": [],
-        }
 
-    # =============================================
-    # CONTEXT BUILDING
+        async def no_context():
+            yield f"data: {NO_CONTEXT_RESPONSE}\n\n"
+
+        return no_context()
+
+    # =========================================
+    # CONTEXT
 
     context = build_context(reranked_docs)
 
-    _debug_print("\n================ FINAL CONTEXT " "================\n")
-
-    _debug_print(context[:3000])
-
-    # ==============================================
+    # =========================================
     # PROMPT
-
-    llm_question = question
-
-    if not question.endswith(("?", ".", "!")):
-        llm_question = f"What does the context say about {question}?"
 
     prompt = f"""
 Context:
@@ -482,49 +454,84 @@ Context:
 
 Question:
 
-{llm_question}
+{question}
 
 Answer using only the context above.
-If the answer is a list, copy only the listed items from the context.
-Do not add details that are not present in the context.
-Do not repeat the question in the answer.
-If the answer is not in the context, reply exactly:
-"{NO_CONTEXT_RESPONSE}"
-
-Answer:
 """
 
-    try:
-        response = _llm().invoke(prompt)
-
-    except Exception as exc:
-        raise RuntimeError("Could not generate response.") from exc
-
-    answer = clean_answer(
-        response.content,
-        question=question,
-        llm_question=llm_question,
-    )
-
     # =========================================
-    # CITATIONS
+    # STREAMING GENERATOR
 
-    citations = []
+    # async def token_generator():
 
-    for doc in reranked_docs:
+    #     full_answer = ""
+    #     buffer = ""
 
-        metadata = doc.metadata
+    #     try:
+        
+    #         async for chunk in _llm().astream(prompt):
+            
+    #             token = chunk.content
+                
+    #             # token = chunk.content
 
-        citations.append(
-            {
-                "source": metadata.get("source"),
-                "page": metadata.get("page"),
-                "section": metadata.get("section"),
-            }
-        )
+    #             if not token or not token.strip():
+    #                 continue
+    
+    #             full_answer += token
+    #             buffer += token
+    
+    #             # Send every ~20 chars
+    #             if len(buffer) >= 20 and token.endswith((" ", ".", "!", "?")):
+                
+    #                 yield f"data: {buffer}\n\n"
+    
+    #                 buffer = ""
+    
+    #         # Send remaining text
+    #         if buffer:
+    #             yield f"data: {buffer}\n\n"
+    
+    #         yield "data: [DONE]\n\n"
+    
+    #     except Exception:
+        
+    #         yield "data: Error generating response.\n\n"
 
-    return {
-        "answer": answer,
-        "sources": citations,
-    }
+    async def token_generator():
+
+        buffer = ""
+
+        try:
+        
+            async for chunk in _llm().astream(prompt):
+            
+                token = chunk.content
+    
+                if not token:
+                    continue
+                
+                # Skip exact duplicates
+                if token == buffer[-len(token):]:
+                    continue
+                
+                buffer += token
+    
+                # Flush periodically
+                if len(buffer) >= 40:
+                
+                    yield f"data: {buffer}\n\n"
+    
+                    buffer = ""
+    
+            if buffer:
+                yield f"data: {buffer}\n\n"
+    
+            yield "data: [DONE]\n\n"
+    
+        except Exception as exc:
+        
+            yield f"data: Error: {str(exc)}\n\n"
+
+    return token_generator()
 
