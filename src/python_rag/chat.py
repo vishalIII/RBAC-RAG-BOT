@@ -350,32 +350,6 @@ CONTENT:
 
     return "\n\n".join(context_parts)
 
-
-def clean_answer(
-    answer: str,
-    *,
-    question: str,
-    llm_question: str,
-) -> str:
-    lines = answer.strip().splitlines()
-
-    repeated_questions = {
-        question.strip().casefold().rstrip(":?.!"),
-        llm_question.strip().casefold().rstrip(":?.!"),
-    }
-
-    while lines:
-        first_line = lines[0].strip().casefold().rstrip(":?.!")
-
-        if first_line not in repeated_questions:
-            break
-
-        lines.pop(0)
-
-    cleaned_answer = "\n".join(lines).strip()
-
-    return cleaned_answer or answer.strip()
-
 async def ask_question_stream(
     question: str,
     *,
