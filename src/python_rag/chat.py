@@ -39,7 +39,8 @@ EMBEDDING_MODEL = os.getenv(
 
 OLLAMA_MODEL = os.getenv(
     "OLLAMA_MODEL",
-    "llama3",
+    # "llama3",
+    "llama3.2:1b"
 )
 
 OLLAMA_BASE_URL = os.getenv(
@@ -146,7 +147,7 @@ def rerank_documents(
 ) -> List[Document]:
     """
     Industry-standard two-stage reranking.
-    
+
     Pre-filter  → remove only corrupt/empty garbage (very low bar)
     Cohere      → semantic relevance (does the heavy lifting)
     Post-filter → trust Cohere score only, confidence is a blend signal only
@@ -157,8 +158,8 @@ def rerank_documents(
     # Confidence score is NOT a relevance signal here.
     # Only remove truly broken chunks.
     # =====================================================
-    CORRUPTION_CONFIDENCE_MAX = 0.20   # only reject actual garbage
-    VECTOR_SCORE_MAX = 2.0             # wide net — let Cohere decide
+    CORRUPTION_CONFIDENCE_MAX = 0.20  # only reject actual garbage
+    VECTOR_SCORE_MAX = 2.0  # wide net — let Cohere decide
 
     filtered_docs = []
     rejected_docs = []
@@ -186,7 +187,8 @@ def rerank_documents(
     if not filtered_docs:
         _debug_print("WARNING: All docs filtered — falling back to top vector matches")
         filtered_docs = [
-            doc for doc, score in sorted(
+            doc
+            for doc, score in sorted(
                 documents_with_scores,
                 key=lambda x: x[1],
             )[:top_k]
@@ -231,7 +233,7 @@ def rerank_documents(
     # POST-RERANK — trust Cohere, use confidence as blend
     # Do NOT gate hard on confidence here.
     # =====================================================
-    RERANK_SCORE_MIN = 0.05   # very low — only reject totally irrelevant
+    RERANK_SCORE_MIN = 0.05  # very low — only reject totally irrelevant
 
     reranked_docs = []
     for result in response.results:
@@ -350,12 +352,14 @@ CONTENT:
 
     return "\n\n".join(context_parts)
 
+
 async def ask_question_stream(
     question: str,
     *,
     user_role: str,
     department: str | None = None,
     doc_type: str | None = None,
+    conversation_history: str = "",
 ):
 
     question = question.strip()
@@ -377,12 +381,10 @@ async def ask_question_stream(
     # =========================================
     # RETRIEVAL
 
-    documents_with_scores = (
-        vector_store.similarity_search_with_score(
-            query=question,
-            k=15,
-            filter=search_filter,
-        )
+    documents_with_scores = vector_store.similarity_search_with_score(
+        query=question,
+        k=15,
+        filter=search_filter,
     )
 
     if not documents_with_scores:
@@ -401,9 +403,7 @@ async def ask_question_stream(
         top_k=7,
     )
 
-    reranked_docs = deduplicate_documents(
-        reranked_docs
-    )
+    reranked_docs = deduplicate_documents(reranked_docs)
 
     if not reranked_docs:
 
@@ -420,16 +420,44 @@ async def ask_question_stream(
     # =========================================
     # PROMPT
 
-    prompt = f"""
-Context:
+#     prompt = f"""
+# Conversation History:
+# {conversation_history}
 
+# Context:
+# {context}
+
+# Current User Question:
+# {question}
+
+# Instructions:
+# - Answer naturally
+# - Use conversation history
+# - Use only provided context
+# - If answer is not in context, say so
+# """
+
+
+    prompt = f"""
+You are a helpful AI assistant.
+
+Conversation History:
+{conversation_history}
+
+Retrieved Context:
 {context}
 
-Question:
-
+Current User Question:
 {question}
 
-Answer using only the context above.
+Instructions:
+- Answer the current question directly.
+- Use conversation history only if needed.
+- Use retrieved context only when it is relevant.
+- If context is unrelated, ignore it.
+- Do NOT invent information.
+- If you don't know, say so.
+- Keep the answer focused on the user's exact question.
 """
 
     # =========================================
@@ -445,12 +473,17 @@ Answer using only the context above.
 
                 token = chunk.content
 
+                if not token:
+                    continue
+
+                token = str(token)
+
                 full_answer += token
 
                 yield f"data: {token}\n\n"
 
-        except Exception:
-
-            yield "data: Error generating response.\n\n"
+        except Exception as e:
+            print("STREAM ERROR:", str(e))
+            yield f"data: Error generating response: {str(e)}\n\n"
 
     return token_generator()

@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
     user_role: str
     department: str | None = None
     doc_type: str | None = None
+    conversation_history: str = ""
 
 
 @app.get("/")
@@ -31,6 +32,7 @@ async def chat(req: ChatRequest):
             user_role=req.user_role,
             department=req.department,
             doc_type=req.doc_type,
+            conversation_history=req.conversation_history,
         )
 
     except ValueError as exc:
