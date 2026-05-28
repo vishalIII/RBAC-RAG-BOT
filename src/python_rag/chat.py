@@ -40,7 +40,7 @@ EMBEDDING_MODEL = os.getenv(
 OLLAMA_MODEL = os.getenv(
     "OLLAMA_MODEL",
     # "llama3",
-    "llama3.2:1b"
+    "llama3.2:1b",
 )
 
 OLLAMA_BASE_URL = os.getenv(
@@ -167,7 +167,7 @@ def rerank_documents(
     for doc, score in documents_with_scores:
         metadata = doc.metadata
         confidence_score = metadata.get("confidence_score", 0.5)
-
+        _debug_print(f"VECTOR SCORE: {score}")
         # Reject corrupted/empty chunks only
         if confidence_score < CORRUPTION_CONFIDENCE_MAX:
             rejected_docs.append((doc, score, "corruption"))
@@ -184,15 +184,18 @@ def rerank_documents(
     # FALLBACK — if everything got filtered, return best
     # vector matches so user never gets empty response
     # =====================================================
+    # if not filtered_docs:
+    #     _debug_print("WARNING: All docs filtered — falling back to top vector matches")
+    #     filtered_docs = [
+    #         doc
+    #         for doc, score in sorted(
+    #             documents_with_scores,
+    #             key=lambda x: x[1],
+    #         )[:top_k]
+    #     ]
+
     if not filtered_docs:
-        _debug_print("WARNING: All docs filtered — falling back to top vector matches")
-        filtered_docs = [
-            doc
-            for doc, score in sorted(
-                documents_with_scores,
-                key=lambda x: x[1],
-            )[:top_k]
-        ]
+        return []
 
     # =====================================================
     # PREPARE DOCUMENTS FOR COHERE
@@ -257,12 +260,18 @@ def rerank_documents(
     # FINAL FALLBACK — if Cohere returns nothing useful
     # Never return empty — return best vector matches
     # =====================================================
+    # if not reranked_docs:
+    #     _debug_print("WARNING: No docs passed rerank — falling back to filtered_docs")
+    #     for doc in filtered_docs[:top_k]:
+    #         doc.metadata["rerank_score"] = 0.0
+    #         doc.metadata["combined_score"] = doc.metadata.get("confidence_score", 0.5)
+    #         reranked_docs.append(doc)
+
+    # STRICT MODE
+
     if not reranked_docs:
-        _debug_print("WARNING: No docs passed rerank — falling back to filtered_docs")
-        for doc in filtered_docs[:top_k]:
-            doc.metadata["rerank_score"] = 0.0
-            doc.metadata["combined_score"] = doc.metadata.get("confidence_score", 0.5)
-            reranked_docs.append(doc)
+        _debug_print("No relevant documents after reranking")
+        return []
 
     # =====================================================
     # DEBUG
@@ -381,8 +390,19 @@ async def ask_question_stream(
     # =========================================
     # RETRIEVAL
 
+    effective_query = question
+
+
+    if conversation_history.strip():
+        effective_query = f"""
+    Conversation:
+    {conversation_history}
+    Current Question:
+    {question}
+    """
+
     documents_with_scores = vector_store.similarity_search_with_score(
-        query=question,
+        query=effective_query,
         k=15,
         filter=search_filter,
     )
@@ -417,47 +437,92 @@ async def ask_question_stream(
 
     context = build_context(reranked_docs)
 
+    if not context.strip():
+
+        async def no_context():
+            yield f"data: {NO_CONTEXT_RESPONSE}\n\n"
+
+        return no_context()
+
     # =========================================
     # PROMPT
 
-#     prompt = f"""
-# Conversation History:
-# {conversation_history}
+    #     prompt = f"""
+    # Conversation History:
+    # {conversation_history}
 
-# Context:
-# {context}
+    # Context:
+    # {context}
 
-# Current User Question:
-# {question}
+    # Current User Question:
+    # {question}
 
-# Instructions:
-# - Answer naturally
-# - Use conversation history
-# - Use only provided context
-# - If answer is not in context, say so
-# """
+    # Instructions:
+    # - Answer naturally
+    # - Use conversation history
+    # - Use only provided context
+    # - If answer is not in context, say so
+    # """
 
+    #     prompt = f"""
+    # You are a helpful AI assistant.
+
+    # Conversation History:
+    # {conversation_history}
+
+    # Retrieved Context:
+    # {context}
+
+    # Current User Question:
+    # {question}
+
+    # Instructions:
+    # - Answer the current question directly.
+    # - Use conversation history only if needed.
+    # - Use retrieved context only when it is relevant.
+    # - If context is unrelated, ignore it.
+    # - Do NOT invent information.
+    # - If you don't know, say so.
+    # - Keep the answer focused on the user's exact question.
+    # """
+
+    #     prompt = f"""
+    # You are a document question-answering assistant.
+
+    # Answer using the provided context.
+
+    # If the context does not contain the answer, reply exactly with:
+
+    # {NO_CONTEXT_RESPONSE}
+
+    # Keep the answer concise.
+
+    # Context:
+    # {context}
+
+    # Question:
+    # {question}
+    # """
 
     prompt = f"""
-You are a helpful AI assistant.
+You are a document question-answering assistant.
+
+Use the conversation history for follow-up questions.
+
+Answer using the provided context and conversation history.
+
+If the answer is not in the context, reply exactly with:
+
+{NO_CONTEXT_RESPONSE}
 
 Conversation History:
 {conversation_history}
 
-Retrieved Context:
+Context:
 {context}
 
-Current User Question:
+Question:
 {question}
-
-Instructions:
-- Answer the current question directly.
-- Use conversation history only if needed.
-- Use retrieved context only when it is relevant.
-- If context is unrelated, ignore it.
-- Do NOT invent information.
-- If you don't know, say so.
-- Keep the answer focused on the user's exact question.
 """
 
     # =========================================
