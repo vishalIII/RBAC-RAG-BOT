@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+python-dotenv
+pydantic
+langchain
+langchain-community
+langchain-text-splitters
+langchain-qdrant
+qdrant-client
+huggingface-hub
+ollama
+pypdf
+requests
+langchain-openai
+fastembed
+sentence-transformers
+langchain-ollama
