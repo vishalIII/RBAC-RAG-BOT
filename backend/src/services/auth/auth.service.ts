@@ -97,10 +97,14 @@ export class AuthService {
       await client.query("COMMIT");
 
       const payload = {
+        id: user.id,
         sub: user.id,
         role: user.role,
+        email: user.email,
+        tenantId: user.tenant_id,
         tenant_id: user.tenant_id,
         company_id: user.company_id,
+        userType: "company_user",
         user_table: "company_users",
       };
 
@@ -159,10 +163,14 @@ export class AuthService {
       }
 
       const payload = {
+        id: user.id,
         sub: user.id,
         role: "platform_admin",
+        email: user.email,
+        tenantId: null,
         tenant_id: null,
         company_id: null,
+        userType: "platform_admin",
         user_table: "platform_users",
       };
 
@@ -197,7 +205,7 @@ export class AuthService {
 
       params = [
         email.toLowerCase(),
-        tenant_id.toUpperCase(),
+        tenant_id.trim().toLowerCase(),
       ];
     } else {
       query = `
@@ -236,10 +244,14 @@ export class AuthService {
     }
 
     const payload = {
+      id: user.id,
       sub: user.id,
       role: user.role,
+      email: user.email,
+      tenantId: user.tenant_id,
       tenant_id: user.tenant_id,
       company_id: user.company_id,
+      userType: "company_user",
       user_table: "company_users",
     };
 
@@ -262,29 +274,69 @@ export class AuthService {
 
   static async refresh(refreshToken: string) {
     const payload = verifyRefreshToken(refreshToken);
+    const userId = payload.id ?? payload.sub;
+
+    if (
+      payload.user_table !== "company_users" &&
+      payload.user_table !== "platform_users"
+    ) {
+      throw new Error("INVALID_REFRESH_TOKEN");
+    }
+
+    const userType =
+      payload.userType ??
+      (payload.user_table === "platform_users"
+        ? "platform_admin"
+        : "company_user");
+    let email = payload.email;
 
     if (payload.user_table === "company_users") {
       const { rows } = await pool.query(
         `
-        SELECT is_active
+        SELECT email, is_active
         FROM company_users
         WHERE id = $1
           AND tenant_id = $2
         `,
-        [payload.sub, payload.tenant_id]
+        [userId, payload.tenant_id]
       );
 
       if (!rows[0]?.is_active) {
         throw new Error("ACCOUNT_DISABLED");
       }
+
+      email = rows[0].email;
+    } else if (payload.user_table === "platform_users") {
+      const { rows } = await pool.query(
+        `
+        SELECT email
+        FROM platform_users
+        WHERE id = $1
+        `,
+        [userId]
+      );
+
+      if (!rows[0]) {
+        throw new Error("INVALID_REFRESH_TOKEN");
+      }
+
+      email = rows[0].email;
+    }
+
+    if (!userId || !email || !payload.role) {
+      throw new Error("INVALID_REFRESH_TOKEN");
     }
 
     return {
       access_token: signAccessToken({
-        sub: payload.sub,
+        id: userId,
+        sub: userId,
         role: payload.role,
+        email,
+        tenantId: payload.tenantId ?? payload.tenant_id ?? null,
         tenant_id: payload.tenant_id,
         company_id: payload.company_id,
+        userType,
         user_table: payload.user_table,
       }),
     };

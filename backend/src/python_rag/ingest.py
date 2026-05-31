@@ -260,7 +260,7 @@ def build_metadata(
         "access_level": "internal",
         "allowed_roles": [
             "tourism_admin",
-            "tourism_employee",
+            "employee",
             "manager",
         ],
         # ===================================================================

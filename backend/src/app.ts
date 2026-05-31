@@ -3,6 +3,11 @@ import cors from "cors";
 
 import chatRouter from "./routes/chatRoutes.js";
 import authRouter from "./routes/auth.routes.js";
+import managerRouter from "./routes/manager/manager.routes.js";
+
+import { authenticate } from "./middleware/auth.middleware.js";
+import { authorize } from "./middleware/role.middleware.js";
+import { requireTenant } from "./middleware/tenant.middleware.js";
 
 const app = express();
 
@@ -15,10 +20,35 @@ app.use(
 app.use(express.json());
 
 app.get("/", (_, res) => {
-  res.send("This one is Home");
+  res.send("This one is public Home");
 });
+
+app.get("/admin", authenticate, authorize("platform_admin"), (_, res) => {
+  res.send("This one is platform admin");
+});
+
+app.get(
+  "/manager",
+  authenticate,
+  requireTenant,
+  authorize("manager"),
+  (_, res) => {
+    res.send("This one is company manager");
+  }
+);
+
+app.get(
+  "/employee",
+  authenticate,
+  requireTenant,
+  authorize("employee"),
+  (_, res) => {
+    res.send("This one is company employee");
+  }
+);
 
 app.use("/", chatRouter);
 app.use("/auth", authRouter);
+app.use("/manager", managerRouter);
 
 export default app;

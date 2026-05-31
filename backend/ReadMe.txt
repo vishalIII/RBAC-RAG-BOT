@@ -34,5 +34,6 @@ deactivate
 backend> docker run -p 6333:6333 qdrant/qdrant
 backend> npm run python:ingest  
 backend> npm run python:api
-backend> npm run start   
+backend> npm run db:migrate
+npm run dev   
 frontend> npm run dev -- --turbopack

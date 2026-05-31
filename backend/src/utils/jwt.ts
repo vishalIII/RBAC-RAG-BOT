@@ -26,7 +26,7 @@ const refreshSecret = () => requiredEnv("JWT_REFRESH_SECRET");
 
 export const signAccessToken = (payload: TokenPayload): string =>
   jwt.sign(payload, accessSecret(), {
-    expiresIn: tokenLifetime("JWT_ACCESS_EXPIRES_IN", "15m"),
+    expiresIn: tokenLifetime("JWT_ACCESS_EXPIRES_IN", "1d"),
     issuer: ISSUER,
   });
 
