@@ -1,4 +1,9 @@
 import { spawn } from "child_process";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export class IngestionService {
   static async ingestDocument(
@@ -6,16 +11,18 @@ export class IngestionService {
     filePath: string
   ): Promise<void> {
     return new Promise((resolve, reject) => {
-
+      console.log("Before spawn");
+      const pythonScriptPath = join(__dirname, "../../python_rag/ingest.py");
       const pythonProcess = spawn(
         "python",
         [
-          "src/python/ingest.py",
+          pythonScriptPath,
           filePath,
           documentId,
         ]
       );
-
+      console.log("cwd =", process.cwd());
+      console.log("atleast here")
       pythonProcess.stdout.on(
         "data",
         (data) => {

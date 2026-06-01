@@ -3,6 +3,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
+import sys
 
 from dotenv import load_dotenv
 
@@ -223,6 +224,7 @@ def build_metadata(
     chunk,
     chunk_index: int,
     pdf_path: Path,
+    document_id:str,
 ) -> dict:
 
     content = chunk.page_content
@@ -244,7 +246,8 @@ def build_metadata(
         # =================================================================
         # Document Traceability
         "chunk_id": chunk_index,
-        "document_id": str(uuid4()),
+        # "document_id": str(uuid4()),
+        "document_id":document_id,
         "parent_id": pdf_path.stem,
         "source": pdf_path.name,
         "page": page,
@@ -291,7 +294,10 @@ def build_metadata(
 
 
 def ingest_pdf() -> None:
-    pdf_path = get_pdf_path()
+    # pdf_path = get_pdf_path()
+    pdf_path = Path(sys.argv[1])
+
+    document_id = sys.argv[2]
 
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
@@ -327,6 +333,7 @@ def ingest_pdf() -> None:
             chunk=chunk,
             chunk_index=index,
             pdf_path=pdf_path,
+            document_id=document_id,
         )
 
         chunk.metadata.update(metadata)

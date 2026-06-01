@@ -1,5 +1,6 @@
 import pool from "../../config/db.js";
 import fs from "fs";
+import { IngestionService } from "./ingestion.service.js";
 
 export class DocumentService {
   static async create(title: string, file: Express.Multer.File) {
@@ -9,7 +10,12 @@ export class DocumentService {
       [title, file.filename, file.path],
     );
 
-    return result.rows[0];
+    const document = result.rows[0];
+    await IngestionService.ingestDocument(document.id, file.path).catch(
+      console.error,
+    );
+
+    return document;
   }
 
   static async getAllDocuments() {
