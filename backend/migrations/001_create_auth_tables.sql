@@ -96,3 +96,22 @@ CREATE INDEX IF NOT EXISTS company_users_tenant_id_idx
 
 CREATE INDEX IF NOT EXISTS company_users_company_id_idx
   ON company_users(company_id);
+
+
+
+CREATE TABLE IF NOT EXISTS documents (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  title varchar(255) NOT NULL,
+  file_name varchar(255) NOT NULL,
+  file_path text NOT NULL,
+  created_by uuid REFERENCES company_users(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS documents_company_id_idx
+  ON documents(company_id);
+
+CREATE INDEX IF NOT EXISTS documents_created_by_idx
+  ON documents(created_by);
