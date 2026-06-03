@@ -4,13 +4,22 @@ import { DocumentService } from "../../services/manager/crudDocuments.service.js
 export class DocumentController {
   static async create(req: Request, res: Response) {
     try {
+      const companyId = req.user?.companyId;
+      const userId = req.user?.id;
+
+      if (!companyId || !userId) {
+        return res.status(401).json({
+          message: "Unauthorized",
+        });
+      }
+
       if (!req.file) {
         return res.status(400).json({
           message: "File required",
         });
       }
 
-      const document = await DocumentService.create(req.body.title, req.file);
+      const document = await DocumentService.create(companyId, userId, req.body.title, req.file);
 
       return res.status(201).json(document);
     } catch (error) {
@@ -18,9 +27,17 @@ export class DocumentController {
     }
   }
 
-  static async getAll(_req: Request, res: Response) {
+  static async getAll(req: Request, res: Response) {
     try {
-      const documents = await DocumentService.getAllDocuments();
+      const companyId = req.user?.companyId;
+
+      if (!companyId) {
+        return res.status(401).json({
+          message: "Unauthorized",
+        });
+      }
+
+      const documents = await DocumentService.getAllDocuments(companyId);
 
       return res.json(documents);
     } catch (error) {
@@ -30,9 +47,17 @@ export class DocumentController {
 
   static async getById(req: Request, res: Response): Promise<void> {
     try {
+      const companyId = req.user?.companyId;
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+      if (!companyId) {
+        res.status(401).json({
+          message: "Unauthorized",
+        });
+        return;
+      }
      
-      const document = await DocumentService.getDocumentById(id);
+      const document = await DocumentService.getDocumentById(companyId, id);
 
       if (!document) {
          res.status(404).json({
@@ -50,8 +75,17 @@ export class DocumentController {
 
   static async update (req: Request, res: Response){
     try {
+      const companyId = req.user?.companyId;
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+      if (!companyId) {
+        return res.status(401).json({
+          message: "Unauthorized",
+        });
+      }
+
       const document = await DocumentService.updateDocument(
+        companyId,
         id,
         req.body.title,
         req.file as Express.Multer.File | undefined,
@@ -71,8 +105,16 @@ export class DocumentController {
 
   static async remove (req: Request, res: Response) {
     try {
+      const companyId = req.user?.companyId;
       const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const deleted = await DocumentService.deleteDocument(id);
+
+      if (!companyId) {
+        return res.status(401).json({
+          message: "Unauthorized",
+        });
+      }
+
+      const deleted = await DocumentService.deleteDocument(companyId, id);
 
       if (!deleted) {
         return res.status(404).json({

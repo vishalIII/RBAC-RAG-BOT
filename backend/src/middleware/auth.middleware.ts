@@ -5,8 +5,6 @@ import { verifyAccessToken } from "../utils/jwt.js";
 interface JwtPayload {
   id?: string;
   sub?: string;
-  tenantId?: string | null;
-  tenant_id?: string | null;
   company_id?: string | null;
   role?: string;
   email?: string;
@@ -60,7 +58,6 @@ export const authenticate = (
 
     req.user = {
       id,
-      tenantId: decoded.tenantId ?? decoded.tenant_id ?? null,
       companyId: decoded.company_id ?? null,
       role: decoded.role,
       email: decoded.email,

@@ -1,6 +1,6 @@
 import jwt, { type JwtPayload, type SignOptions } from "jsonwebtoken";
 
-const ISSUER = "multi-tenant-api";
+const ISSUER = "pdf-chatbot-api";
 
 type TokenPayload = Omit<JwtPayload, "iat" | "exp" | "iss">;
 

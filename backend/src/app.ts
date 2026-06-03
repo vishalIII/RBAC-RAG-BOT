@@ -7,7 +7,7 @@ import managerRouter from "./routes/manager/manager.routes.js";
 
 import { authenticate } from "./middleware/auth.middleware.js";
 import { authorize } from "./middleware/role.middleware.js";
-import { requireTenant } from "./middleware/tenant.middleware.js";
+import { requireCompany } from "./middleware/company.middleware.js";
 
 const app = express();
 
@@ -30,7 +30,7 @@ app.get("/admin", authenticate, authorize("platform_admin"), (_, res) => {
 app.get(
   "/manager",
   authenticate,
-  requireTenant,
+  requireCompany,
   authorize("manager"),
   (_, res) => {
     res.send("This one is company manager");
@@ -40,7 +40,7 @@ app.get(
 app.get(
   "/employee",
   authenticate,
-  requireTenant,
+  requireCompany,
   authorize("employee"),
   (_, res) => {
     res.send("This one is company employee");

@@ -1,6 +1,5 @@
 import bcrypt from "bcryptjs";
 import pool from "../../config/db.js";
-import { generateTenantId } from "../../utils/tenant.js";
 import {
   signAccessToken,
   signRefreshToken,
@@ -12,7 +11,7 @@ import {
   LoginDto,
 } from "../../types/auth.types.js";
 
-const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS) || 12;
+const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS) || 12;     
 
 export class AuthService {
   static async register(data: RegisterDto) {
@@ -32,8 +31,6 @@ export class AuthService {
         throw new Error("EMAIL_EXISTS");
       }
 
-      const tenantId = await generateTenantId();
-
       const slug = company_name
         .toLowerCase()
         .replace(/\s+/g, "-")
@@ -42,11 +39,11 @@ export class AuthService {
       const companyResult = await client.query(
         `
         INSERT INTO companies
-        (tenant_id, name, slug, is_active)
-        VALUES ($1,$2,$3,true)
-        RETURNING id, tenant_id, name, slug
+        (name, slug, is_active)
+        VALUES ($1,$2,true)
+        RETURNING id, name, slug
         `,
-        [tenantId, company_name.trim(), slug]
+        [company_name.trim(), slug]
       );
 
       const company = companyResult.rows[0];
@@ -60,23 +57,20 @@ export class AuthService {
         `
         INSERT INTO company_users
         (
-          tenant_id,
           company_id,
           email,
           password_hash,
           role,
           is_active
         )
-        VALUES ($1,$2,$3,$4,'manager',true)
+        VALUES ($1,$2,$3,'owner',true)
         RETURNING
           id,
-          tenant_id,
           company_id,
           email,
           role
         `,
         [
-          tenantId,
           company.id,
           email.toLowerCase(),
           passwordHash,
@@ -101,17 +95,14 @@ export class AuthService {
         sub: user.id,
         role: user.role,
         email: user.email,
-        tenantId: user.tenant_id,
-        tenant_id: user.tenant_id,
         company_id: user.company_id,
         userType: "company_user",
         user_table: "company_users",
       };
 
       return {
-        message: "Tenant registered successfully",
-        tenant: {
-          tenant_id: company.tenant_id,
+        message: "Company registered successfully",
+        company: {
           company_id: company.id,
           name: company.name,
           slug: company.slug,
@@ -131,7 +122,7 @@ export class AuthService {
   }
 
   static async login(data: LoginDto) {
-    const { email, password, user_type, tenant_id } = data;
+    const { email, password, user_type } = data;
 
     if (user_type === "platform_admin") {
       const { rows } = await pool.query(
@@ -167,8 +158,6 @@ export class AuthService {
         sub: user.id,
         role: "platform_admin",
         email: user.email,
-        tenantId: null,
-        tenant_id: null,
         company_id: null,
         userType: "platform_admin",
         user_table: "platform_users",
@@ -187,11 +176,8 @@ export class AuthService {
       };
     }
 
-    let query: string;
-    let params: unknown[];
-
-    if (tenant_id) {
-      query = `
+    const { rows } = await pool.query(
+      `
         SELECT
           cu.*,
           c.name AS company_name,
@@ -200,29 +186,9 @@ export class AuthService {
         JOIN companies c
           ON c.id = cu.company_id
         WHERE cu.email = $1
-          AND cu.tenant_id = $2
-      `;
-
-      params = [
-        email.toLowerCase(),
-        tenant_id.trim().toLowerCase(),
-      ];
-    } else {
-      query = `
-        SELECT
-          cu.*,
-          c.name AS company_name,
-          c.slug AS company_slug
-        FROM company_users cu
-        JOIN companies c
-          ON c.id = cu.company_id
-        WHERE cu.email = $1
-      `;
-
-      params = [email.toLowerCase()];
-    }
-
-    const { rows } = await pool.query(query, params);
+      `,
+      [email.toLowerCase()]
+    );
 
     const user = rows[0];
 
@@ -248,8 +214,6 @@ export class AuthService {
       sub: user.id,
       role: user.role,
       email: user.email,
-      tenantId: user.tenant_id,
-      tenant_id: user.tenant_id,
       company_id: user.company_id,
       userType: "company_user",
       user_table: "company_users",
@@ -260,7 +224,6 @@ export class AuthService {
         id: user.id,
         email: user.email,
         role: user.role,
-        tenant_id: user.tenant_id,
         company_id: user.company_id,
         company_name: user.company_name,
         company_slug: user.company_slug,
@@ -291,14 +254,18 @@ export class AuthService {
     let email = payload.email;
 
     if (payload.user_table === "company_users") {
+      if (!payload.company_id) {
+        throw new Error("INVALID_REFRESH_TOKEN");
+      }
+
       const { rows } = await pool.query(
         `
         SELECT email, is_active
         FROM company_users
         WHERE id = $1
-          AND tenant_id = $2
+          AND company_id = $2
         `,
-        [userId, payload.tenant_id]
+        [userId, payload.company_id]
       );
 
       if (!rows[0]?.is_active) {
@@ -333,8 +300,6 @@ export class AuthService {
         sub: userId,
         role: payload.role,
         email,
-        tenantId: payload.tenantId ?? payload.tenant_id ?? null,
-        tenant_id: payload.tenant_id,
         company_id: payload.company_id,
         userType,
         user_table: payload.user_table,

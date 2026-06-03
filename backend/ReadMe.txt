@@ -29,10 +29,15 @@ deactivate
 
 
 
+# First time only
+docker run -d --name qdrant -p 6333:6333 -p 6334:6334 -v qdrant_data:/qdrant/storage qdrant/qdrant
 
+# Later
+docker start qdrant
 
-backend> docker run -p 6333:6333 qdrant/qdrant
-backend> npm run python:ingest  
+# Stop
+docker stop qdrant
+
 backend> npm run python:api
 backend> npm run db:migrate
 npm run dev   

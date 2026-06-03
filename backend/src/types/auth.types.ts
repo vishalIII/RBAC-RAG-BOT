@@ -8,7 +8,6 @@ export interface LoginDto {
   email: string;
   password: string;
   user_type: "platform_admin" | "company_user";
-  tenant_id?: string;
 }
 
 export interface RefreshDto {

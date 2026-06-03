@@ -1,13 +1,20 @@
 import pool from "../../config/db.js";
 import fs from "fs";
-import { IngestionService } from "./ingestion.service.js";
+import { IngestionService } from "../ingest/ingestion.service.js";
 
 export class DocumentService {
-  static async create(title: string, file: Express.Multer.File) {
+  static async create(
+    companyId: string,
+    createdBy: string,
+    title: string,
+    file: Express.Multer.File
+  ) {
     const result = await pool.query(
-      `INSERT INTO DOCUMENTS (title, file_name, file_path) VALUES ($1, $2, $3) RETURNING *
+      `INSERT INTO documents (company_id, title, file_name, file_path, created_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *
             `,
-      [title, file.filename, file.path],
+      [companyId, title, file.filename, file.path, createdBy],
     );
 
     const document = result.rows[0];
@@ -18,29 +25,33 @@ export class DocumentService {
     return document;
   }
 
-  static async getAllDocuments() {
+  static async getAllDocuments(companyId: string) {
     const result = await pool.query(
-      "SELECT * FROM documents ORDER BY created_at DESC",
+      "SELECT * FROM documents WHERE company_id = $1 ORDER BY created_at DESC",
+      [companyId],
     );
 
     return result.rows;
   }
 
-  static async getDocumentById(id: string) {
-    const result = await pool.query("SELECT * FROM documents WHERE id = $1", [
+  static async getDocumentById(companyId: string, id: string) {
+    const result = await pool.query("SELECT * FROM documents WHERE id = $1 AND company_id = $2", [
       id,
+      companyId,
     ]);
 
     return result.rows[0] || null;
   }
 
   static async updateDocument(
+    companyId: string,
     id: string,
     title?: string,
     file?: Express.Multer.File,
   ) {
-    const existing = await pool.query("SELECT * FROM documents WHERE id = $1", [
+    const existing = await pool.query("SELECT * FROM documents WHERE id = $1 AND company_id = $2", [
       id,
+      companyId,
     ]);
 
     if (!existing.rows.length) {
@@ -68,17 +79,19 @@ export class DocumentService {
         file_name = $2,
         file_path = $3
     WHERE id = $4
+      AND company_id = $5
     RETURNING *
     `,
-      [title || doc.title, fileName, filePath, id],
+      [title || doc.title, fileName, filePath, id, companyId],
     );
 
     return updated.rows[0];
   }
 
-  static async deleteDocument(id: string) {
-    const existing = await pool.query("SELECT * FROM documents WHERE id = $1", [
+  static async deleteDocument(companyId: string, id: string) {
+    const existing = await pool.query("SELECT * FROM documents WHERE id = $1 AND company_id = $2", [
       id,
+      companyId,
     ]);
 
     if (!existing.rows.length) {
@@ -91,7 +104,7 @@ export class DocumentService {
       fs.unlinkSync(doc.file_path);
     }
 
-    await pool.query("DELETE FROM documents WHERE id = $1", [id]);
+    await pool.query("DELETE FROM documents WHERE id = $1 AND company_id = $2", [id, companyId]);
 
     return true;
   }

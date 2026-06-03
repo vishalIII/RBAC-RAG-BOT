@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 
-export const requireTenant = (
+export const requireCompany = (
   req: Request,
   res: Response,
   next: NextFunction
@@ -14,10 +14,10 @@ export const requireTenant = (
 
   if (
     req.user.userType === "company_user" &&
-    !req.user.tenantId
+    !req.user.companyId
   ) {
     res.status(403).json({
-      message: "Tenant not assigned",
+      message: "Company not assigned",
     });
     return;
   }

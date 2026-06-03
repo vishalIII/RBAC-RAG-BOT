@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-const ISSUER = "multi-tenant-api";
+const ISSUER = "pdf-chatbot-api";
 function requiredEnv(name) {
     const value = process.env[name];
     if (!value) {
@@ -13,7 +13,7 @@ function tokenLifetime(name, fallback) {
 const accessSecret = () => requiredEnv("JWT_ACCESS_SECRET");
 const refreshSecret = () => requiredEnv("JWT_REFRESH_SECRET");
 export const signAccessToken = (payload) => jwt.sign(payload, accessSecret(), {
-    expiresIn: tokenLifetime("JWT_ACCESS_EXPIRES_IN", "15m"),
+    expiresIn: tokenLifetime("JWT_ACCESS_EXPIRES_IN", "1d"),
     issuer: ISSUER,
 });
 export const signRefreshToken = (payload) => jwt.sign(payload, refreshSecret(), {
