@@ -26,9 +26,9 @@ export class AuthController {
                 });
                 return;
             }
-            console.error("Registration failed:", error);
+            console.error("Registration failed w:", error);
             res.status(500).json({
-                message: "Registration failed",
+                message: "Registration failed w",
             });
         }
     }

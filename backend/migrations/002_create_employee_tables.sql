@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS employees (
     company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
 
     user_id UUID NOT NULL UNIQUE
+        REFERENCES company_users(id) ON DELETE CASCADE,
+
     REFERENCES company_users(id)
     ON DELETE CASCADE,
 

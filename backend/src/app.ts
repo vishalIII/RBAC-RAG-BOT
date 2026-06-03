@@ -3,6 +3,7 @@ import cors from "cors";
 
 import chatRouter from "./routes/chatRoutes.js";
 import authRouter from "./routes/auth.routes.js";
+import ownerRouter from "./routes/owner/owner.routes.js";
 import managerRouter from "./routes/manager/manager.routes.js";
 
 import { authenticate } from "./middleware/auth.middleware.js";
@@ -28,6 +29,16 @@ app.get("/admin", authenticate, authorize("platform_admin"), (_, res) => {
 });
 
 app.get(
+  "/owner",
+  authenticate,
+  requireCompany,
+  authorize("owner"),
+  (_, res) => {
+    res.send("This one is company owner");
+  }
+);
+
+app.get(
   "/manager",
   authenticate,
   requireCompany,
@@ -49,6 +60,7 @@ app.get(
 
 app.use("/", chatRouter);
 app.use("/auth", authRouter);
+app.use("/owner", ownerRouter);
 app.use("/manager", managerRouter);
 
 export default app;

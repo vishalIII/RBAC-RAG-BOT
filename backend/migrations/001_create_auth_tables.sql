@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS company_users (
   email text NOT NULL UNIQUE,
   password_hash text NOT NULL,
   role text NOT NULL DEFAULT 'owner'
-CHECK (role IN ('owner', 'manager', 'employee'))
+CHECK (role IN ('owner', 'manager', 'employee')),
   must_change_password boolean NOT NULL DEFAULT false,
   is_active boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS platform_users (
   email text NOT NULL UNIQUE,
   password_hash text NOT NULL,
   role text NOT NULL DEFAULT 'platform_admin'
-CHECK (role IN ('platform_admin'))
+CHECK (role IN ('platform_admin')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

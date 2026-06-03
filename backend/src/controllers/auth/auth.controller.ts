@@ -42,11 +42,11 @@ export class AuthController {
         });
         return;
       }
-
-      console.error("Registration failed:", error);
+      // console.log(error)
+      console.error("Registration failed www :", error);
 
       res.status(500).json({
-        message: "Registration failed",
+        message: "Registration failed www ", error
       });
     }
   }
@@ -56,19 +56,20 @@ export class AuthController {
     res: Response
   ): Promise<void> {
     try {
-      const { email, password, user_type } = req.body;
+      const { email, password } = req.body;
 
       if (
         !isNonEmptyString(email) ||
-        !isNonEmptyString(password) ||
-        !["platform_admin", "company_user"].includes(user_type)
+        !isNonEmptyString(password)
       ) {
         sendValidationError(
           res,
-          "email, password, and valid user_type are required"
+          "email, password are required"
         );
         return;
       }
+
+      
 
       const result = await AuthService.login(req.body);
 

@@ -7,7 +7,7 @@ import { requireCompany } from "../../middleware/company.middleware.js";
 
 const app = express.Router();
 
-app.use("/owner", authenticate, requireCompany, authorize("owner"), managerRoutes);
+app.use("/manager", authenticate, requireCompany, authorize("owner"), managerRoutes);
 // app.use("/document", authenticate, requireCompany, authorize("manager"), crudDocumentsRoutes);
 
 export default app;

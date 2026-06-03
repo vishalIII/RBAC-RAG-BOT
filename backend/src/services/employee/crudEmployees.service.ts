@@ -94,6 +94,10 @@ export class EmployeeService {
 
       // ============================================================
       // Create Login User
+      console.log({
+  companyId,
+  createdBy,
+});
 
       const userResult = await client.query(
         `
