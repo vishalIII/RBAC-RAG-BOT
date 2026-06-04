@@ -2,7 +2,10 @@ import pool from "../../config/db.js";
 import bcrypt from "bcryptjs";
 // import { v4 as uuidv4 } from "uuid";
 
-import { CreateEmployeeDto , CreateManagerDto } from "../../types/employee.types.js";
+import {
+  CreateEmployeeDto,
+  CreateManagerDto,
+} from "../../types/employee.types.js";
 
 import { generateTemporaryPassword } from "../../utils/generatePassword.js";
 import { sendEmployeeCredentials } from "../../utils/employeeMailHelper.js";
@@ -95,9 +98,9 @@ export class EmployeeService {
       // ============================================================
       // Create Login User
       console.log({
-  companyId,
-  createdBy,
-});
+        companyId,
+        createdBy,
+      });
 
       const userResult = await client.query(
         `
@@ -131,6 +134,25 @@ export class EmployeeService {
       // ============================================================
       // Create Employee Profile
 
+      let managerId: string | null = null;
+
+      const creator = await client.query(
+        `
+  SELECT
+      cu.role,
+      e.id AS employee_id
+  FROM company_users cu
+  LEFT JOIN employees e
+      ON e.user_id = cu.id
+  WHERE cu.id = $1
+  `,
+        [createdBy],
+      );
+
+      if (creator.rows.length > 0 && creator.rows[0].role === "manager") {
+        managerId = creator.rows[0].employee_id;
+      }
+
       const employeeResult = await client.query(
         `
       INSERT INTO employees (
@@ -157,7 +179,7 @@ export class EmployeeService {
         [
           user.id,
           companyId,
-          data.managerId ?? null,
+          managerId,
           data.employmentStatus ?? "active",
           data.joiningDate ?? null,
           data.departmentId ?? null,
@@ -360,54 +382,51 @@ export class EmployeeService {
     }
   }
 
-static async createManager(
-  companyId: string,
-  createdBy: string,
-  data: CreateManagerDto,
-) {
-  const client = await pool.connect();
+  static async createManager(
+    companyId: string,
+    createdBy: string,
+    data: CreateManagerDto,
+  ) {
+    const client = await pool.connect();
 
-  try {
-    await client.query("BEGIN");
+    try {
+      await client.query("BEGIN");
 
-    const temporaryPassword = generateTemporaryPassword();
+      const temporaryPassword = generateTemporaryPassword();
 
-    const passwordHash = await bcrypt.hash(
-      temporaryPassword,
-      10,
-    );
+      const passwordHash = await bcrypt.hash(temporaryPassword, 10);
 
-    const existingEmail = await client.query(
-      `
+      const existingEmail = await client.query(
+        `
       SELECT id
       FROM company_users
       WHERE email = $1
       `,
-      [data.email.toLowerCase()],
-    );
+        [data.email.toLowerCase()],
+      );
 
-    if (existingEmail.rows.length > 0) {
-      throw new Error("EMAIL_EXISTS");
-    }
+      if (existingEmail.rows.length > 0) {
+        throw new Error("EMAIL_EXISTS");
+      }
 
-    if (data.departmentId) {
-      const department = await client.query(
-        `
+      if (data.departmentId) {
+        const department = await client.query(
+          `
         SELECT id
         FROM departments
         WHERE id = $1
           AND company_id = $2
         `,
-        [data.departmentId, companyId],
-      );
+          [data.departmentId, companyId],
+        );
 
-      if (department.rows.length === 0) {
-        throw new Error("DEPARTMENT_NOT_FOUND");
+        if (department.rows.length === 0) {
+          throw new Error("DEPARTMENT_NOT_FOUND");
+        }
       }
-    }
 
-    const userResult = await client.query(
-      `
+      const userResult = await client.query(
+        `
       INSERT INTO company_users (
         company_id,
         email,
@@ -430,17 +449,13 @@ static async createManager(
       )
       RETURNING id,email,role
       `,
-      [
-        companyId,
-        data.email.toLowerCase(),
-        passwordHash,
-      ],
-    );
+        [companyId, data.email.toLowerCase(), passwordHash],
+      );
 
-    const user = userResult.rows[0];
+      const user = userResult.rows[0];
 
-    const employeeResult = await client.query(
-      `
+      const employeeResult = await client.query(
+        `
       INSERT INTO employees (
         user_id,
         company_id,
@@ -462,51 +477,43 @@ static async createManager(
       )
       RETURNING *
       `,
-      [
-        user.id,
-        companyId,
-        data.employmentStatus ?? "active",
-        data.joiningDate ?? null,
-        data.departmentId ?? null,
-        data.employeeCode,
-        data.firstName,
-        data.lastName,
-        data.designation,
-        data.phone ?? null,
-        createdBy,
-      ],
-    );
-
-    await client.query("COMMIT");
-
-    try {
-      await sendEmployeeCredentials(
-        data.email,
-        temporaryPassword,
+        [
+          user.id,
+          companyId,
+          data.employmentStatus ?? "active",
+          data.joiningDate ?? null,
+          data.departmentId ?? null,
+          data.employeeCode,
+          data.firstName,
+          data.lastName,
+          data.designation,
+          data.phone ?? null,
+          createdBy,
+        ],
       );
-    } catch (err) {
-      console.error(err);
+
+      await client.query("COMMIT");
+
+      try {
+        await sendEmployeeCredentials(data.email, temporaryPassword);
+      } catch (err) {
+        console.error(err);
+      }
+
+      return {
+        user,
+        employee: mapEmployeeRow(employeeResult.rows[0]),
+      };
+    } catch (error: any) {
+      await client.query("ROLLBACK");
+
+      if (error.code === "23505") {
+        throw new Error("EMPLOYEE_CODE_EXISTS");
+      }
+
+      throw error;
+    } finally {
+      client.release();
     }
-
-    return {
-      user,
-      employee: mapEmployeeRow(employeeResult.rows[0]),
-    };
-  } catch (error: any) {
-    await client.query("ROLLBACK");
-
-    if (error.code === "23505") {
-      throw new Error("EMPLOYEE_CODE_EXISTS");
-    }
-
-    throw error;
-  } finally {
-    client.release();
   }
-}
-
-
-
-
-
 }

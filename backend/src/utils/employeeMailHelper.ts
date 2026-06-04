@@ -4,6 +4,7 @@ export async function sendEmployeeCredentials(
   email: string,
   password: string
 ) {
+  console.log(`tempory password of = ${email} : ${password}`)
   await sendEmail({
     to: email,
     subject: "Your Account Credentials",
