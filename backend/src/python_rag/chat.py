@@ -7,6 +7,24 @@ from typing import List
 from dotenv import load_dotenv
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
+
+# ====================================================================
+from langchain_google_genai import ChatGoogleGenerativeAI
+load_dotenv()
+
+# Read the Google API key from environment (populated from .env)
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+if not GOOGLE_API_KEY:
+    raise ValueError("GOOGLE_API_KEY is missing. Set it in your environment or .env file.")
+
+GEMINI_MODEL = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-2.5-flash",
+)
+# =============================================================
+
+
 from langchain_qdrant import (
     FastEmbedSparse,
     QdrantVectorStore,
@@ -19,8 +37,6 @@ from qdrant_client.models import (
     MatchAny,
     MatchValue,
 )
-
-load_dotenv()
 
 COLLECTION_NAME = os.getenv(
     "QDRANT_COLLECTION",
@@ -93,14 +109,25 @@ def _vector_store() -> QdrantVectorStore:
         raise RuntimeError("Could not connect to Qdrant.") from exc
 
 
+# @lru_cache(maxsize=1)
+# def _llm() -> ChatOllama:
+#     return ChatOllama(
+#         model=OLLAMA_MODEL,
+#         base_url=OLLAMA_BASE_URL,
+#         temperature=0,
+#         num_predict=512,
+#     )
+
+# ===================================
 @lru_cache(maxsize=1)
-def _llm() -> ChatOllama:
-    return ChatOllama(
-        model=OLLAMA_MODEL,
-        base_url=OLLAMA_BASE_URL,
+def _llm() -> ChatGoogleGenerativeAI:
+    return ChatGoogleGenerativeAI(
+        model=GEMINI_MODEL,
+        google_api_key=GOOGLE_API_KEY,
         temperature=0,
-        num_predict=512,
     )
+
+# ===========================================================
 
 
 from qdrant_client.models import (
