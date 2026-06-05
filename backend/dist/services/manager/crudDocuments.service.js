@@ -1,32 +1,64 @@
 import pool from "../../config/db.js";
 import fs from "fs";
-import { IngestionService } from "./ingestion.service.js";
+import { IngestionService } from "../ingest/ingestion.service.js";
 export class DocumentService {
-    static async create(companyId, createdBy, title, file) {
-        const result = await pool.query(`INSERT INTO documents (company_id, title, file_name, file_path, created_by)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *
-            `, [companyId, title, file.filename, file.path, createdBy]);
-        const document = result.rows[0];
-        await IngestionService.ingestDocument(document.id, file.path).catch(console.error);
-        return document;
+    static async create(companyId, uploadedBy, metadata, file) {
+        const client = await pool.connect();
+        try {
+            await client.query("BEGIN");
+            const result = await client.query(`
+      INSERT INTO documents (
+        company_id,
+        title,
+        file_name,
+        file_path,
+        uploaded_by,
+        document_type,
+        tags
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      RETURNING *
+      `, [
+                companyId,
+                metadata.title,
+                file.filename,
+                file.path,
+                uploadedBy,
+                metadata.document_type,
+                metadata.tags,
+            ]);
+            const document = result.rows[0];
+            for (const departmentId of metadata.department_ids) {
+                await client.query(`
+        INSERT INTO document_departments (
+          document_id,
+          department_id
+        )
+        VALUES ($1,$2)
+        `, [document.id, departmentId]);
+            }
+            await client.query("COMMIT");
+            await IngestionService.ingestDocument(document.title, document.document_type, document.tags || [], companyId, metadata.department_ids, document.id, uploadedBy, document.created_at.toISOString(), document.file_path);
+            return document;
+        }
+        catch (error) {
+            await client.query("ROLLBACK");
+            throw error;
+        }
+        finally {
+            client.release();
+        }
     }
     static async getAllDocuments(companyId) {
         const result = await pool.query("SELECT * FROM documents WHERE company_id = $1 ORDER BY created_at DESC", [companyId]);
         return result.rows;
     }
     static async getDocumentById(companyId, id) {
-        const result = await pool.query("SELECT * FROM documents WHERE id = $1 AND company_id = $2", [
-            id,
-            companyId,
-        ]);
+        const result = await pool.query("SELECT * FROM documents WHERE id = $1 AND company_id = $2", [id, companyId]);
         return result.rows[0] || null;
     }
     static async updateDocument(companyId, id, title, file) {
-        const existing = await pool.query("SELECT * FROM documents WHERE id = $1 AND company_id = $2", [
-            id,
-            companyId,
-        ]);
+        const existing = await pool.query("SELECT * FROM documents WHERE id = $1 AND company_id = $2", [id, companyId]);
         if (!existing.rows.length) {
             return null;
         }
@@ -52,10 +84,7 @@ export class DocumentService {
         return updated.rows[0];
     }
     static async deleteDocument(companyId, id) {
-        const existing = await pool.query("SELECT * FROM documents WHERE id = $1 AND company_id = $2", [
-            id,
-            companyId,
-        ]);
+        const existing = await pool.query("SELECT * FROM documents WHERE id = $1 AND company_id = $2", [id, companyId]);
         if (!existing.rows.length) {
             return false;
         }

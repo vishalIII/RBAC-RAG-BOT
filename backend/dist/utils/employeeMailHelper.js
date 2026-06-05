@@ -1,5 +1,6 @@
 import { sendEmail } from "./sendEmail.js";
 export async function sendEmployeeCredentials(email, password) {
+    console.log(`tempory password of = ${email} : ${password}`);
     await sendEmail({
         to: email,
         subject: "Your Account Credentials",

@@ -9,6 +9,7 @@ import managerRouter from "./routes/manager/manager.routes.js";
 import { authenticate } from "./middleware/auth.middleware.js";
 import { authorize } from "./middleware/role.middleware.js";
 import { requireCompany } from "./middleware/company.middleware.js";
+import { loadEmployee } from "./middleware/employee.middleware.js";
 
 const app = express();
 
@@ -48,17 +49,15 @@ app.get(
   }
 );
 
-app.get(
-  "/employee",
+app.use(
+  "/chat",
   authenticate,
   requireCompany,
-  authorize("employee"),
-  (_, res) => {
-    res.send("This one is company employee");
-  }
+  authorize("employee","manager"),
+  loadEmployee,
+  chatRouter
 );
 
-app.use("/", chatRouter);
 app.use("/auth", authRouter);
 app.use("/owner", ownerRouter);
 app.use("/manager", managerRouter);

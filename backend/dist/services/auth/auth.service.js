@@ -33,7 +33,7 @@ export class AuthService {
           role,
           is_active
         )
-        VALUES ($1,$2,$3,'manager',true)
+        VALUES ($1,$2,$3,'owner',true)
         RETURNING
           id,
           company_id,
@@ -83,61 +83,44 @@ export class AuthService {
         }
     }
     static async login(data) {
-        const { email, password, user_type } = data;
-        if (user_type === "platform_admin") {
-            const { rows } = await pool.query(`
-        SELECT
-          id,
-          email,
-          password_hash,
-          role
-        FROM platform_users
-        WHERE email = $1
-        `, [email.toLowerCase()]);
-            const user = rows[0];
-            if (!user) {
-                throw new Error("INVALID_CREDENTIALS");
-            }
-            const match = await bcrypt.compare(password, user.password_hash);
-            if (!match) {
-                throw new Error("INVALID_CREDENTIALS");
-            }
-            const payload = {
-                id: user.id,
-                sub: user.id,
-                role: "platform_admin",
-                email: user.email,
-                company_id: null,
-                userType: "platform_admin",
-                user_table: "platform_users",
-            };
-            return {
-                user: {
-                    id: user.id,
-                    email: user.email,
-                    role: "platform_admin",
-                },
-                tokens: {
-                    access_token: signAccessToken(payload),
-                    refresh_token: signRefreshToken(payload),
-                },
-            };
-        }
+        const { email, password } = data;
         const { rows } = await pool.query(`
-        SELECT
-          cu.*,
-          c.name AS company_name,
-          c.slug AS company_slug
-        FROM company_users cu
-        JOIN companies c
-          ON c.id = cu.company_id
-        WHERE cu.email = $1
-      `, [email.toLowerCase()]);
+    SELECT
+      pu.id,
+      pu.email,
+      pu.password_hash,
+      pu.role,
+      'platform_admin' AS user_type,
+      NULL::uuid AS company_id,
+      true AS is_active,
+      NULL::text AS company_name,
+      NULL::text AS company_slug
+    FROM platform_users pu
+    WHERE pu.email = $1
+
+    UNION ALL
+
+    SELECT
+      cu.id,
+      cu.email,
+      cu.password_hash,
+      cu.role,
+      'company_user' AS user_type,
+      cu.company_id,
+      cu.is_active,
+      c.name AS company_name,
+      c.slug AS company_slug
+    FROM company_users cu
+    JOIN companies c
+      ON c.id = cu.company_id
+    WHERE cu.email = $1
+    `, [email.toLowerCase()]);
         const user = rows[0];
         if (!user) {
             throw new Error("INVALID_CREDENTIALS");
         }
-        if (!user.is_active) {
+        if (user.user_type === "company_user" &&
+            !user.is_active) {
             throw new Error("ACCOUNT_DISABLED");
         }
         const match = await bcrypt.compare(password, user.password_hash);
@@ -147,17 +130,24 @@ export class AuthService {
         const payload = {
             id: user.id,
             sub: user.id,
-            role: user.role,
+            role: user.user_type === "platform_admin"
+                ? "platform_admin"
+                : user.role,
             email: user.email,
             company_id: user.company_id,
-            userType: "company_user",
-            user_table: "company_users",
+            userType: user.user_type,
+            user_table: user.user_type === "platform_admin"
+                ? "platform_users"
+                : "company_users",
         };
         return {
             user: {
                 id: user.id,
                 email: user.email,
-                role: user.role,
+                role: user.user_type === "platform_admin"
+                    ? "platform_admin"
+                    : user.role,
+                user_type: user.user_type,
                 company_id: user.company_id,
                 company_name: user.company_name,
                 company_slug: user.company_slug,

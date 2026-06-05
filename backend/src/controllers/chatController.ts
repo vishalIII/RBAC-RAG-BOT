@@ -16,26 +16,28 @@ import {
 
 type ChatRequestBody = {
   question: string;
-  user_role: string;
-  department?: string;
-  doc_type?: string;
+  department_id?: string;
+  // document_type?: string;
   sessionId?: string;
   session_id?: string;
 };
 
 export const chat = async (
   req: Request<{}, {}, ChatRequestBody>,
-  res: Response
+  res: Response,
 ) => {
   try {
     const {
       question,
-      user_role,
-      department,
-      doc_type,
+      // document_type,
       sessionId: requestedSessionId,
       session_id,
     } = req.body;
+
+    console.log(`[${question} | ${req.user?.companyId}] | ${req?.employee} ]`)
+
+    const companyId = req.user?.companyId;
+    const departmentId= req?.employee?.department_id;
 
     if (!question?.trim()) {
       return res.status(400).json({
@@ -44,29 +46,24 @@ export const chat = async (
       });
     }
 
-    if (!user_role) {
-      return res.status(400).json({
+    if (!companyId) {
+      return res.status(401).json({
         success: false,
-        error: "User role is required",
+        error: "Unauthorized",
       });
     }
 
     const existingSessionId =
-      normalizeSessionId(requestedSessionId) ||
-      normalizeSessionId(session_id);
+      normalizeSessionId(requestedSessionId) || normalizeSessionId(session_id);
 
     const sessionId =
-      existingSessionId ||
-      (await createSession(
-        buildSessionTitle(question)
-      ));
+      existingSessionId || (await createSession(buildSessionTitle(question)));
 
     const recentMessages = existingSessionId
       ? await getRecentMessages(sessionId)
       : [];
 
-    const conversationHistory =
-      formatConversationHistory(recentMessages);
+    const conversationHistory = formatConversationHistory(recentMessages);
 
     await saveMessage({
       sessionId,
@@ -76,15 +73,9 @@ export const chat = async (
 
     res.setHeader("X-Session-Id", sessionId);
 
-    res.setHeader(
-      "Content-Type",
-      "text/event-stream; charset=utf-8"
-    );
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
 
-    res.setHeader(
-      "Cache-Control",
-      "no-cache, no-transform"
-    );
+    res.setHeader("Cache-Control", "no-cache, no-transform");
 
     res.setHeader("Connection", "keep-alive");
 
@@ -95,9 +86,9 @@ export const chat = async (
       url: "http://127.0.0.1:8000/chat",
       data: {
         question,
-        user_role,
-        department,
-        doc_type,
+        company_id: companyId,
+        department_id: departmentId,
+        // doc_type: document_type,
         conversation_history: conversationHistory,
       },
       responseType: "stream",
@@ -112,8 +103,7 @@ export const chat = async (
 
     response.data.on("end", async () => {
       try {
-        const assistantMessage =
-          extractSseData(assistantStream).trim();
+        const assistantMessage = extractSseData(assistantStream).trim();
 
         if (assistantMessage) {
           await saveMessage({
@@ -123,10 +113,7 @@ export const chat = async (
           });
         }
       } catch (error: any) {
-        console.error(
-          "Could not save assistant message:",
-          error.message
-        );
+        console.error("Could not save assistant message:", error.message);
       }
 
       res.end();

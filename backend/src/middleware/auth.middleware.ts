@@ -64,6 +64,8 @@ export const authenticate = (
       userType,
     };
 
+    
+
     next();
   } catch {
     res.status(401).json({

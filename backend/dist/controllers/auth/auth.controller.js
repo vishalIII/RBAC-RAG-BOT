@@ -26,19 +26,19 @@ export class AuthController {
                 });
                 return;
             }
-            console.error("Registration failed w:", error);
+            // console.log(error)
+            console.error("Registration failed www :", error);
             res.status(500).json({
-                message: "Registration failed w",
+                message: "Registration failed www ", error
             });
         }
     }
     static async login(req, res) {
         try {
-            const { email, password, user_type } = req.body;
+            const { email, password } = req.body;
             if (!isNonEmptyString(email) ||
-                !isNonEmptyString(password) ||
-                !["platform_admin", "company_user"].includes(user_type)) {
-                sendValidationError(res, "email, password, and valid user_type are required");
+                !isNonEmptyString(password)) {
+                sendValidationError(res, "email, password are required");
                 return;
             }
             const result = await AuthService.login(req.body);

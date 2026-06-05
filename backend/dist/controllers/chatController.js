@@ -3,23 +3,23 @@ import { createSession, saveMessage, getRecentMessages, } from "../services/chat
 import { buildSessionTitle, formatConversationHistory, extractSseData, normalizeSessionId, } from "../utils/chatHelpers.js";
 export const chat = async (req, res) => {
     try {
-        const { question, user_role, department, doc_type, sessionId: requestedSessionId, session_id, } = req.body;
+        const { question, department_id, document_type, sessionId: requestedSessionId, session_id, } = req.body;
+        console.log(`[${question} | ${department_id} | ${document_type} | ${req.user?.companyId}] | ${req.employee?.department_id} ]`);
+        const companyId = req.user?.companyId;
         if (!question?.trim()) {
             return res.status(400).json({
                 success: false,
                 error: "Question is required",
             });
         }
-        if (!user_role) {
-            return res.status(400).json({
+        if (!companyId) {
+            return res.status(401).json({
                 success: false,
-                error: "User role is required",
+                error: "Unauthorized",
             });
         }
-        const existingSessionId = normalizeSessionId(requestedSessionId) ||
-            normalizeSessionId(session_id);
-        const sessionId = existingSessionId ||
-            (await createSession(buildSessionTitle(question)));
+        const existingSessionId = normalizeSessionId(requestedSessionId) || normalizeSessionId(session_id);
+        const sessionId = existingSessionId || (await createSession(buildSessionTitle(question)));
         const recentMessages = existingSessionId
             ? await getRecentMessages(sessionId)
             : [];
@@ -39,9 +39,9 @@ export const chat = async (req, res) => {
             url: "http://127.0.0.1:8000/chat",
             data: {
                 question,
-                user_role,
-                department,
-                doc_type,
+                user_role: req.user?.role,
+                department: department_id,
+                doc_type: document_type,
                 conversation_history: conversationHistory,
             },
             responseType: "stream",

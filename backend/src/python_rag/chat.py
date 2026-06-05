@@ -103,38 +103,41 @@ def _llm() -> ChatOllama:
     )
 
 
+from qdrant_client.models import (
+    FieldCondition,
+    Filter,
+    MatchValue,
+)
+
 def build_search_filter(
     *,
-    user_role: str,
-    department: str | None = None,
-    doc_type: str | None = None,
+    company_id: str,
+    department_id: str | None = None,
+    # document_type: str | None = None,
 ) -> Filter:
-    """
-    Build RBAC + metadata filters.
-    """
 
     conditions = [
         FieldCondition(
-            key="metadata.allowed_roles",
-            match=MatchAny(any=[user_role]),
+            key="metadata.company_id",
+            match=MatchValue(value=company_id),
         )
     ]
 
-    if department:
+    if department_id:
         conditions.append(
             FieldCondition(
-                key="metadata.department",
-                match=MatchValue(value=department),
+                key="metadata.department_ids",
+                match=MatchValue(value=department_id),
             )
         )
 
-    if doc_type:
-        conditions.append(
-            FieldCondition(
-                key="metadata.doc_type",
-                match=MatchValue(value=doc_type),
-            )
-        )
+    # if document_type:
+    #     conditions.append(
+    #         FieldCondition(
+    #             key="metadata.document_type",
+    #             match=MatchValue(value=document_type),
+    #         )
+    #     )
 
     return Filter(must=conditions)
 
@@ -365,9 +368,9 @@ CONTENT:
 async def ask_question_stream(
     question: str,
     *,
-    user_role: str,
-    department: str | None = None,
-    doc_type: str | None = None,
+    company_id: str,
+    department_id: str,
+    # document_type: str | None = None,
     conversation_history: str = "",
 ):
 
@@ -382,16 +385,15 @@ async def ask_question_stream(
     # FILTERS
 
     search_filter = build_search_filter(
-        user_role=user_role,
-        department=department,
-        doc_type=doc_type,
+        company_id=company_id,
+        department_id=department_id,
+        # document_type=document_type,
     )
 
     # =========================================
     # RETRIEVAL
 
     effective_query = question
-
 
     if conversation_history.strip():
         effective_query = f"""

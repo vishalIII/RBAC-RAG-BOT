@@ -1,4 +1,5 @@
 import { DocumentService } from "../../services/manager/crudDocuments.service.js";
+import { sendError } from "../../utils/response.js";
 export class DocumentController {
     static async create(req, res) {
         try {
@@ -14,11 +15,24 @@ export class DocumentController {
                     message: "File required",
                 });
             }
-            const document = await DocumentService.create(companyId, userId, req.body.title, req.file);
+            const metadata = JSON.parse(req.body.metadata);
+            const { title, document_type, tags, department_ids } = metadata;
+            if (!title) {
+                sendError(res, "Title is required", 400);
+            }
+            if (!department_ids) {
+                sendError(res, "department ids is required", 400);
+            }
+            const document = await DocumentService.create(companyId, userId, metadata, req.file);
             return res.status(201).json(document);
         }
         catch (error) {
-            return res.status(500).json(error);
+            console.error(error);
+            return res.status(500).json({
+                message: error.message,
+                detail: error.detail,
+                code: error.code,
+            });
         }
     }
     static async getAll(req, res) {
@@ -39,7 +53,9 @@ export class DocumentController {
     static async getById(req, res) {
         try {
             const companyId = req.user?.companyId;
-            const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const id = Array.isArray(req.params.id)
+                ? req.params.id[0]
+                : req.params.id;
             if (!companyId) {
                 res.status(401).json({
                     message: "Unauthorized",
@@ -63,7 +79,9 @@ export class DocumentController {
     static async update(req, res) {
         try {
             const companyId = req.user?.companyId;
-            const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const id = Array.isArray(req.params.id)
+                ? req.params.id[0]
+                : req.params.id;
             if (!companyId) {
                 return res.status(401).json({
                     message: "Unauthorized",
@@ -81,11 +99,12 @@ export class DocumentController {
             return res.status(500).json(error);
         }
     }
-    ;
     static async remove(req, res) {
         try {
             const companyId = req.user?.companyId;
-            const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const id = Array.isArray(req.params.id)
+                ? req.params.id[0]
+                : req.params.id;
             if (!companyId) {
                 return res.status(401).json({
                     message: "Unauthorized",
@@ -105,5 +124,4 @@ export class DocumentController {
             return res.status(500).json(error);
         }
     }
-    ;
 }
