@@ -63,11 +63,6 @@ BEGIN
     END IF;
 END $$;
 
-
-
--- =======================================================================
--- -- DOCUMENTS ASSIGNED TO DEPARTMENTS
--- =========================
 CREATE TABLE IF NOT EXISTS document_departments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -81,7 +76,6 @@ CREATE TABLE IF NOT EXISTS document_departments (
 
     UNIQUE(document_id, department_id)
 );
-
 
 CREATE INDEX IF NOT EXISTS documents_company_id_idx
 ON documents(company_id);

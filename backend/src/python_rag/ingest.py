@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 import sys
+import json
 
 from dotenv import load_dotenv
 
@@ -72,17 +73,17 @@ def get_qdrant_client() -> QdrantClient:
     return QdrantClient(url=QDRANT_URL)
 
 
-def recreate_collection() -> None:
-    client = get_qdrant_client()
+# def recreate_collection() -> None:
+#     client = get_qdrant_client()
 
-    collections = client.get_collections().collections
+#     collections = client.get_collections().collections
 
-    collection_names = [collection.name for collection in collections]
+#     collection_names = [collection.name for collection in collections]
 
-    if COLLECTION_NAME in collection_names:
-        print(f"Deleting existing collection: " f"{COLLECTION_NAME}")
+#     if COLLECTION_NAME in collection_names:
+#         print(f"Deleting existing collection: " f"{COLLECTION_NAME}")
 
-        client.delete_collection(collection_name=COLLECTION_NAME)
+#         client.delete_collection(collection_name=COLLECTION_NAME)
 
 
 # ==================================================================================================
@@ -224,7 +225,14 @@ def build_metadata(
     chunk,
     chunk_index: int,
     pdf_path: Path,
-    document_id:str,
+    document_id: str,
+    title: str,
+    document_type: str,
+    tags: list[str],
+    company_id: str,
+    department_ids: list[str],
+    uploaded_by: str,
+    created_at: str,
 ) -> dict:
 
     content = chunk.page_content
@@ -247,7 +255,7 @@ def build_metadata(
         # Document Traceability
         "chunk_id": chunk_index,
         # "document_id": str(uuid4()),
-        "document_id":document_id,
+        "document_id": document_id,
         "parent_id": pdf_path.stem,
         "source": pdf_path.name,
         "page": page,
@@ -256,26 +264,13 @@ def build_metadata(
         "section": content[:80],
         # =====================================================================
         # DOCUMENT TYPE
-        "doc_type": "travel_guide",
-        # ==========================================================
-        # RBAC / ACCESS CONTROL
-        "department": "tourism",
-        "access_level": "internal",
-        "allowed_roles": [
-            "tourism_admin",
-            "employee",
-            "manager",
-        ],
-        # ===================================================================
-        # GOVERNANCE
-        "author": "Pune Tourism Board",
-        "created_at": datetime.utcnow().isoformat(),
-        "language": "en",
-        "tags": [
-            "travel",
-            "tourism",
-            "pune",
-        ],
+        "title": title,
+        "document_type": document_type,
+        "company_id": company_id,
+        "department_ids": department_ids,
+        "uploaded_by": uploaded_by,
+        "created_at": created_at,
+        "tags": tags,
         # ==============================================================
         # ENTITY EXTRACTION
         "entities": entities,
@@ -289,7 +284,7 @@ def build_metadata(
     }
 
 
-# ========================================
+# ===============================================================================================================
 # Ingestion
 
 
@@ -297,7 +292,21 @@ def ingest_pdf() -> None:
     # pdf_path = get_pdf_path()
     pdf_path = Path(sys.argv[1])
 
-    document_id = sys.argv[2]
+    title = sys.argv[2]
+
+    document_type = sys.argv[3]
+
+    tags = json.loads(sys.argv[4])
+
+    company_id = sys.argv[5]
+
+    department_ids = json.loads(sys.argv[6])
+
+    uploaded_by = sys.argv[7]
+
+    created_at = sys.argv[8]
+
+    document_id = sys.argv[9]
 
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
@@ -334,6 +343,13 @@ def ingest_pdf() -> None:
             chunk_index=index,
             pdf_path=pdf_path,
             document_id=document_id,
+            title=title,
+            document_type=document_type,
+            tags=tags,
+            company_id=company_id,
+            department_ids=department_ids,
+            uploaded_by=uploaded_by,
+            created_at=created_at,
         )
 
         chunk.metadata.update(metadata)
@@ -354,7 +370,7 @@ def ingest_pdf() -> None:
     # ===========================================================================================
     # COLLECTION RESET
 
-    recreate_collection()
+    # recreate_collection()
 
     # ==============================================================================
     # STORE IN QDRANT

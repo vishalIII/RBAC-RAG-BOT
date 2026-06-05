@@ -5,24 +5,81 @@ import { IngestionService } from "../ingest/ingestion.service.js";
 export class DocumentService {
   static async create(
     companyId: string,
-    createdBy: string,
-    title: string,
-    file: Express.Multer.File
+    uploadedBy: string,
+    metadata: {
+      title: string;
+      document_type: string;
+      tags: string[];
+      department_ids: string[];
+    },
+    file: Express.Multer.File,
   ) {
-    const result = await pool.query(
-      `INSERT INTO documents (company_id, title, file_name, file_path, created_by)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING *
-            `,
-      [companyId, title, file.filename, file.path, createdBy],
-    );
+    const client = await pool.connect();
 
-    const document = result.rows[0];
-    await IngestionService.ingestDocument(document.id, file.path).catch(
-      console.error,
-    );
+    try {
+      await client.query("BEGIN");
 
-    return document;
+      const result = await client.query(
+        `
+      INSERT INTO documents (
+        company_id,
+        title,
+        file_name,
+        file_path,
+        uploaded_by,
+        document_type,
+        tags
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      RETURNING *
+      `,
+        [
+          companyId,
+          metadata.title,
+          file.filename,
+          file.path,
+          uploadedBy,
+          metadata.document_type,
+          metadata.tags,
+        ],
+      );
+
+      const document = result.rows[0];
+
+      for (const departmentId of metadata.department_ids) {
+        await client.query(
+          `
+        INSERT INTO document_departments (
+          document_id,
+          department_id
+        )
+        VALUES ($1,$2)
+        `,
+          [document.id, departmentId],
+        );
+      }
+
+      await client.query("COMMIT");
+
+      await IngestionService.ingestDocument(
+        document.title,
+        document.document_type,
+        document.tags || [],
+        companyId,
+        metadata.department_ids,
+        document.id,
+        uploadedBy,
+        document.created_at.toISOString(),
+        document.file_path,
+      );
+
+      return document;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   static async getAllDocuments(companyId: string) {
@@ -35,10 +92,10 @@ export class DocumentService {
   }
 
   static async getDocumentById(companyId: string, id: string) {
-    const result = await pool.query("SELECT * FROM documents WHERE id = $1 AND company_id = $2", [
-      id,
-      companyId,
-    ]);
+    const result = await pool.query(
+      "SELECT * FROM documents WHERE id = $1 AND company_id = $2",
+      [id, companyId],
+    );
 
     return result.rows[0] || null;
   }
@@ -49,10 +106,10 @@ export class DocumentService {
     title?: string,
     file?: Express.Multer.File,
   ) {
-    const existing = await pool.query("SELECT * FROM documents WHERE id = $1 AND company_id = $2", [
-      id,
-      companyId,
-    ]);
+    const existing = await pool.query(
+      "SELECT * FROM documents WHERE id = $1 AND company_id = $2",
+      [id, companyId],
+    );
 
     if (!existing.rows.length) {
       return null;
@@ -89,10 +146,10 @@ export class DocumentService {
   }
 
   static async deleteDocument(companyId: string, id: string) {
-    const existing = await pool.query("SELECT * FROM documents WHERE id = $1 AND company_id = $2", [
-      id,
-      companyId,
-    ]);
+    const existing = await pool.query(
+      "SELECT * FROM documents WHERE id = $1 AND company_id = $2",
+      [id, companyId],
+    );
 
     if (!existing.rows.length) {
       return false;
@@ -104,7 +161,10 @@ export class DocumentService {
       fs.unlinkSync(doc.file_path);
     }
 
-    await pool.query("DELETE FROM documents WHERE id = $1 AND company_id = $2", [id, companyId]);
+    await pool.query(
+      "DELETE FROM documents WHERE id = $1 AND company_id = $2",
+      [id, companyId],
+    );
 
     return true;
   }

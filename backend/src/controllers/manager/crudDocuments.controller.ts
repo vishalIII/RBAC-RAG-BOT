@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { DocumentService } from "../../services/manager/crudDocuments.service.js";
-
+import { sendError } from "../../utils/response.js";
 export class DocumentController {
   static async create(req: Request, res: Response) {
     try {
@@ -19,11 +19,34 @@ export class DocumentController {
         });
       }
 
-      const document = await DocumentService.create(companyId, userId, req.body.title, req.file);
+      const metadata = JSON.parse(req.body.metadata);
+
+      const { title, document_type, tags, department_ids } = metadata;
+
+      if (!title) {
+        sendError(res, "Title is required", 400);
+      }
+
+      if (!department_ids) {
+        sendError(res, "department ids is required", 400);
+      }
+
+      const document = await DocumentService.create(
+        companyId,
+        userId,
+        metadata,
+        req.file,
+      );
 
       return res.status(201).json(document);
-    } catch (error) {
-      return res.status(500).json(error);
+    } catch (error: any) {
+      console.error(error);
+
+      return res.status(500).json({
+        message: error.message,
+        detail: error.detail,
+        code: error.code,
+      });
     }
   }
 
@@ -48,7 +71,9 @@ export class DocumentController {
   static async getById(req: Request, res: Response): Promise<void> {
     try {
       const companyId = req.user?.companyId;
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const id = Array.isArray(req.params.id)
+        ? req.params.id[0]
+        : req.params.id;
 
       if (!companyId) {
         res.status(401).json({
@@ -56,27 +81,29 @@ export class DocumentController {
         });
         return;
       }
-     
+
       const document = await DocumentService.getDocumentById(companyId, id);
 
       if (!document) {
-         res.status(404).json({
+        res.status(404).json({
           message: "Document not found",
         });
-        return  
+        return;
       }
 
       res.json(document);
-      return
+      return;
     } catch (error) {
-       res.status(500).json(error);
+      res.status(500).json(error);
     }
   }
 
-  static async update (req: Request, res: Response){
+  static async update(req: Request, res: Response) {
     try {
       const companyId = req.user?.companyId;
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const id = Array.isArray(req.params.id)
+        ? req.params.id[0]
+        : req.params.id;
 
       if (!companyId) {
         return res.status(401).json({
@@ -101,12 +128,14 @@ export class DocumentController {
     } catch (error) {
       return res.status(500).json(error);
     }
-  };
+  }
 
-  static async remove (req: Request, res: Response) {
+  static async remove(req: Request, res: Response) {
     try {
       const companyId = req.user?.companyId;
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const id = Array.isArray(req.params.id)
+        ? req.params.id[0]
+        : req.params.id;
 
       if (!companyId) {
         return res.status(401).json({
@@ -128,5 +157,5 @@ export class DocumentController {
     } catch (error) {
       return res.status(500).json(error);
     }
-  };
+  }
 }
