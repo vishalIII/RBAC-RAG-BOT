@@ -1,10 +1,18 @@
 import pool from "../config/db.js";
-import { v4 as uuidv4 } from "uuid";
+
+type CreateSessionParams = {
+  companyId: string;
+  employeeId: string;
+  title?: string;
+};
 
 type SaveMessageParams = {
   sessionId: string;
-  role: string;
+  role: "user" | "assistant" | "system";
   content: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
 };
 
 type ChatMessage = {
@@ -12,45 +20,55 @@ type ChatMessage = {
   content: string;
 };
 
-export async function createSession(
-  title: string = "New Chat"
-): Promise<string> {
-  const sessionId = uuidv4();
-
-  await pool.query(
+export async function createSession({
+  companyId,
+  employeeId,
+  title = "New Chat",
+}: CreateSessionParams): Promise<string> {
+  const result = await pool.query<{ id: string }>(
     `
     INSERT INTO chat_sessions (
-      id,
+      company_id,
+      employee_id,
       title
     )
-    VALUES ($1, $2)
+    VALUES ($1, $2, $3)
+    RETURNING id
     `,
-    [sessionId, title]
+    [companyId, employeeId, title]
   );
 
-  console.log(sessionId);
-
-  return sessionId;
+  return result.rows[0].id;
 }
 
 export async function saveMessage({
   sessionId,
   role,
   content,
+  promptTokens = 0,
+  completionTokens = 0,
+  totalTokens = 0,
 }: SaveMessageParams): Promise<void> {
-  const messageId = uuidv4();
-
   await pool.query(
     `
     INSERT INTO chat_messages (
-      id,
       session_id,
       role,
-      content
+      content,
+      prompt_tokens,
+      completion_tokens,
+      total_tokens
     )
-    VALUES ($1, $2, $3, $4)
+    VALUES ($1, $2, $3, $4, $5, $6)
     `,
-    [messageId, sessionId, role, content]
+    [
+      sessionId,
+      role,
+      content,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+    ]
   );
 }
 

@@ -17,27 +17,28 @@ import {
 type ChatRequestBody = {
   question: string;
   department_id?: string;
-  // document_type?: string;
   sessionId?: string;
   session_id?: string;
 };
 
 export const chat = async (
   req: Request<{}, {}, ChatRequestBody>,
-  res: Response,
+  res: Response
 ) => {
   try {
     const {
       question,
-      // document_type,
       sessionId: requestedSessionId,
       session_id,
     } = req.body;
 
-    console.log(`[${question} | ${req.user?.companyId}] | ${req?.employee} ]`)
-
     const companyId = req.user?.companyId;
-    const departmentId= req?.employee?.department_id;
+    const employeeId = req.employee?.id;
+    const departmentId = req.employee?.department_id;
+
+    console.log(
+      `[${question}] | company=${companyId} | employee=${employeeId}`
+    );
 
     if (!question?.trim()) {
       return res.status(400).json({
@@ -53,17 +54,31 @@ export const chat = async (
       });
     }
 
+    if (!employeeId) {
+      return res.status(401).json({
+        success: false,
+        error: "Employee not found",
+      });
+    }
+
     const existingSessionId =
-      normalizeSessionId(requestedSessionId) || normalizeSessionId(session_id);
+      normalizeSessionId(requestedSessionId) ||
+      normalizeSessionId(session_id);
 
     const sessionId =
-      existingSessionId || (await createSession(buildSessionTitle(question)));
+      existingSessionId ||
+      (await createSession({
+        companyId,
+        employeeId,
+        title: buildSessionTitle(question),
+      }));
 
     const recentMessages = existingSessionId
       ? await getRecentMessages(sessionId)
       : [];
 
-    const conversationHistory = formatConversationHistory(recentMessages);
+    const conversationHistory =
+      formatConversationHistory(recentMessages);
 
     await saveMessage({
       sessionId,
@@ -72,11 +87,14 @@ export const chat = async (
     });
 
     res.setHeader("X-Session-Id", sessionId);
-
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-
+    res.setHeader(
+      "Content-Type",
+      "text/event-stream; charset=utf-8"
+    );
+    res.setHeader(
+      "Cache-Control",
+      "no-cache, no-transform"
+    );
     res.setHeader("Connection", "keep-alive");
 
     res.flushHeaders?.();
@@ -88,7 +106,6 @@ export const chat = async (
         question,
         company_id: companyId,
         department_id: departmentId,
-        // doc_type: document_type,
         conversation_history: conversationHistory,
       },
       responseType: "stream",
@@ -103,7 +120,8 @@ export const chat = async (
 
     response.data.on("end", async () => {
       try {
-        const assistantMessage = extractSseData(assistantStream).trim();
+        const assistantMessage =
+          extractSseData(assistantStream).trim();
 
         if (assistantMessage) {
           await saveMessage({
@@ -113,7 +131,10 @@ export const chat = async (
           });
         }
       } catch (error: any) {
-        console.error("Could not save assistant message:", error.message);
+        console.error(
+          "Could not save assistant message:",
+          error.message
+        );
       }
 
       res.end();
@@ -124,7 +145,7 @@ export const chat = async (
       res.end();
     });
   } catch (error: any) {
-    console.error(error.message);
+    console.error(error);
 
     if (!res.headersSent) {
       res.status(500).json({
