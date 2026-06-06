@@ -1,28 +1,35 @@
 import pool from "../config/db.js";
-import { v4 as uuidv4 } from "uuid";
-export async function createSession(title = "New Chat") {
-    const sessionId = uuidv4();
-    await pool.query(`
+export async function createSession({ companyId, employeeId, title = "New Chat", }) {
+    const result = await pool.query(`
     INSERT INTO chat_sessions (
-      id,
+      company_id,
+      employee_id,
       title
     )
-    VALUES ($1, $2)
-    `, [sessionId, title]);
-    console.log(sessionId);
-    return sessionId;
+    VALUES ($1, $2, $3)
+    RETURNING id
+    `, [companyId, employeeId, title]);
+    return result.rows[0].id;
 }
-export async function saveMessage({ sessionId, role, content, }) {
-    const messageId = uuidv4();
+export async function saveMessage({ sessionId, role, content, promptTokens = 0, completionTokens = 0, totalTokens = 0, }) {
     await pool.query(`
     INSERT INTO chat_messages (
-      id,
       session_id,
       role,
-      content
+      content,
+      prompt_tokens,
+      completion_tokens,
+      total_tokens
     )
-    VALUES ($1, $2, $3, $4)
-    `, [messageId, sessionId, role, content]);
+    VALUES ($1, $2, $3, $4, $5, $6)
+    `, [
+        sessionId,
+        role,
+        content,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+    ]);
 }
 export async function getRecentMessages(sessionId, limit = 6) {
     const result = await pool.query(`

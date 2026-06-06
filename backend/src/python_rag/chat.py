@@ -25,6 +25,7 @@ GEMINI_MODEL = os.getenv(
 # =============================================================
 
 
+
 from langchain_qdrant import (
     FastEmbedSparse,
     QdrantVectorStore,

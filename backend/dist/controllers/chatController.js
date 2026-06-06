@@ -3,9 +3,11 @@ import { createSession, saveMessage, getRecentMessages, } from "../services/chat
 import { buildSessionTitle, formatConversationHistory, extractSseData, normalizeSessionId, } from "../utils/chatHelpers.js";
 export const chat = async (req, res) => {
     try {
-        const { question, department_id, document_type, sessionId: requestedSessionId, session_id, } = req.body;
-        console.log(`[${question} | ${department_id} | ${document_type} | ${req.user?.companyId}] | ${req.employee?.department_id} ]`);
+        const { question, sessionId: requestedSessionId, session_id, } = req.body;
         const companyId = req.user?.companyId;
+        const employeeId = req.employee?.id;
+        const departmentId = req.employee?.department_id;
+        console.log(`[${question}] | company=${companyId} | employee=${employeeId}`);
         if (!question?.trim()) {
             return res.status(400).json({
                 success: false,
@@ -18,8 +20,20 @@ export const chat = async (req, res) => {
                 error: "Unauthorized",
             });
         }
-        const existingSessionId = normalizeSessionId(requestedSessionId) || normalizeSessionId(session_id);
-        const sessionId = existingSessionId || (await createSession(buildSessionTitle(question)));
+        if (!employeeId) {
+            return res.status(401).json({
+                success: false,
+                error: "Employee not found",
+            });
+        }
+        const existingSessionId = normalizeSessionId(requestedSessionId) ||
+            normalizeSessionId(session_id);
+        const sessionId = existingSessionId ||
+            (await createSession({
+                companyId,
+                employeeId,
+                title: buildSessionTitle(question),
+            }));
         const recentMessages = existingSessionId
             ? await getRecentMessages(sessionId)
             : [];
@@ -39,9 +53,8 @@ export const chat = async (req, res) => {
             url: "http://127.0.0.1:8000/chat",
             data: {
                 question,
-                user_role: req.user?.role,
-                department: department_id,
-                doc_type: document_type,
+                company_id: companyId,
+                department_id: departmentId,
                 conversation_history: conversationHistory,
             },
             responseType: "stream",
@@ -73,7 +86,7 @@ export const chat = async (req, res) => {
         });
     }
     catch (error) {
-        console.error(error.message);
+        console.error(error);
         if (!res.headersSent) {
             res.status(500).json({
                 success: false,

@@ -13,6 +13,7 @@ export const loadEmployee = async (req, res, next) => {
       FROM employees
       WHERE user_id = $1
       `, [req.user.id]);
+        // console.log("employee rows =", result.rows);
         if (result.rows.length === 0) {
             res.status(404).json({
                 success: false,
@@ -21,6 +22,7 @@ export const loadEmployee = async (req, res, next) => {
             return;
         }
         req.employee = result.rows[0];
+        console.log("employee row ", req?.employee);
         next();
     }
     catch (error) {

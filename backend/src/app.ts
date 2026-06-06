@@ -6,12 +6,14 @@ import authRouter from "./routes/auth.routes.js";
 import ownerRouter from "./routes/owner/owner.routes.js";
 import managerRouter from "./routes/manager/manager.routes.js";
 
-import { authenticate } from "./middleware/auth.middleware.js";
-import { authorize } from "./middleware/role.middleware.js";
-import { requireCompany } from "./middleware/company.middleware.js";
+
 import { loadEmployee } from "./middleware/employee.middleware.js";
+import { authenticate } from "./middleware/auth.middleware.js";
+import { requireCompany } from "./middleware/company.middleware.js";
+import { authorize } from "./middleware/role.middleware.js";
 
 const app = express();
+
 
 app.use(
   cors({
