@@ -160,14 +160,18 @@ export async function recordStreamingTokenUsage(
 
     if (usage && usage.totalTokenCount > 0) {
       // Use actual Gemini tokens
+      const promptTokens = Number(usage.promptTokenCount) || 0;
+      const completionTokens = Number(usage.candidatesTokenCount) || 0;
+      const totalTokens = Number(usage.totalTokenCount) || 0;
+
       await recordTokenUsage({
         companyId,
         employeeId,
         sessionId,
         messageId,
-        promptTokens: usage.promptTokenCount,
-        completionTokens: usage.candidatesTokenCount,
-        totalTokens: usage.totalTokenCount,
+        promptTokens,
+        completionTokens,
+        totalTokens,
         modelName,
         questionPreview: questionPreview?.substring(0, 200),
       });

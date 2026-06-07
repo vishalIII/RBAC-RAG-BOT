@@ -51,10 +51,17 @@ export function calculateTokenCost(promptTokens, completionTokens, promptRatePer
 // ====================================================================
 export async function recordTokenUsage(params) {
     const { companyId, employeeId, sessionId, messageId, promptTokens, completionTokens, totalTokens, modelName, questionPreview, contextTokens, } = params;
+    // NOTE: guard against NaN (e.g., Math.trunc(NaN) => NaN) which breaks Postgres integer inserts.
+    const safePromptTokens = Math.max(0, Math.trunc(Number.isFinite(Number(promptTokens)) ? Number(promptTokens) : 0));
+    const safeCompletionTokens = Math.max(0, Math.trunc(Number.isFinite(Number(completionTokens)) ? Number(completionTokens) : 0));
+    const safeTotalTokens = Math.max(0, Math.trunc(Number.isFinite(Number(totalTokens)) ? Number(totalTokens) : 0));
+    const safeContextTokens = contextTokens == null || !Number.isFinite(Number(contextTokens))
+        ? null
+        : Math.trunc(Number(contextTokens));
     // Get current pricing rate
     const pricingRate = await getActivePricingRate(modelName);
-    // Calculate costs
-    const { promptCostCents, completionCostCents, totalCents } = calculateTokenCost(promptTokens, completionTokens, pricingRate.promptTokenRatePer1k, pricingRate.completionTokenRatePer1k);
+    // Calculate costs (use safe numeric values)
+    const { promptCostCents, completionCostCents, totalCents } = calculateTokenCost(safePromptTokens, safeCompletionTokens, pricingRate.promptTokenRatePer1k, pricingRate.completionTokenRatePer1k);
     // Record usage
     const result = await pool.query(`
     INSERT INTO token_usage_logs (
@@ -76,9 +83,9 @@ export async function recordTokenUsage(params) {
         employeeId,
         sessionId,
         messageId || null,
-        promptTokens,
-        completionTokens,
-        totalTokens,
+        safePromptTokens,
+        safeCompletionTokens,
+        safeTotalTokens,
         promptCostCents,
         completionCostCents,
         totalCents,
@@ -96,6 +103,7 @@ export async function recordTokenUsage(params) {
         completion_tokens_used = completion_tokens_used + $2,
         estimated_cost_cents = estimated_cost_cents + $3,
         updated_at = NOW()
+
     WHERE company_id = $4
     `, [promptTokens, completionTokens, totalCents, companyId]);
     // Update daily aggregate
@@ -120,10 +128,51 @@ export async function recordTokenUsage(params) {
         companyId,
         employeeId,
         today,
-        promptTokens,
-        completionTokens,
-        totalTokens,
+        safePromptTokens,
+        safeCompletionTokens,
+        safeTotalTokens,
         totalCents,
+    ]);
+    // Update monthly aggregate (UPSERT)
+    const now = new Date();
+    const yearMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+        .toISOString()
+        .split("T")[0];
+    const uniqueEmployeeCountResult = await pool.query(`
+    SELECT COUNT(DISTINCT employee_id) AS unique_employees
+    FROM daily_usage_aggregates
+    WHERE company_id = $1
+      AND usage_date >= $2::date
+      AND usage_date < ($2::date + INTERVAL '1 month')
+    `, [companyId, yearMonth]);
+    const uniqueEmployees = parseInt(uniqueEmployeeCountResult.rows[0]?.unique_employees || "0", 10) || 0;
+    await pool.query(`
+    INSERT INTO monthly_usage_aggregates (
+      company_id, year_month,
+      prompt_tokens_used, completion_tokens_used, total_tokens_used,
+      total_cost_cents, request_count, unique_employees,
+      created_at, updated_at
+    ) VALUES (
+      $1, $2, $3, $4, $5, $6, 1,
+      $7, NOW(), NOW()
+    )
+    ON CONFLICT (company_id, year_month)
+    DO UPDATE SET
+      prompt_tokens_used = monthly_usage_aggregates.prompt_tokens_used + $3,
+      completion_tokens_used = monthly_usage_aggregates.completion_tokens_used + $4,
+      total_tokens_used = monthly_usage_aggregates.total_tokens_used + $5,
+      total_cost_cents = monthly_usage_aggregates.total_cost_cents + $6,
+      request_count = monthly_usage_aggregates.request_count + 1,
+      unique_employees = $7,
+      updated_at = NOW()
+    `, [
+        companyId,
+        yearMonth,
+        safePromptTokens,
+        safeCompletionTokens,
+        safeTotalTokens,
+        totalCents,
+        uniqueEmployees,
     ]);
     return {
         id: usageLog.id,

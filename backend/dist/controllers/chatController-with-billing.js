@@ -131,6 +131,7 @@ export const chat = async (req, res) => {
         });
         response.data.on("end", async () => {
             try {
+                console.log(`[BillingChat] end() company=${companyId} employee=${employeeId} session=${sessionId}`);
                 // ============================================================
                 // NEW: EXTRACT AND RECORD TOKEN USAGE
                 // ============================================================
@@ -151,9 +152,9 @@ export const chat = async (req, res) => {
                     let totalTokens = 0;
                     if (usage && usage.totalTokenCount > 0) {
                         // Use actual Gemini tokens from API response
-                        promptTokens = usage.promptTokenCount;
-                        completionTokens = usage.candidatesTokenCount;
-                        totalTokens = usage.totalTokenCount;
+                        promptTokens = Number(usage.promptTokenCount) || 0;
+                        completionTokens = Number(usage.candidatesTokenCount) || 0;
+                        totalTokens = Number(usage.totalTokenCount) || 0;
                     }
                     else {
                         // Fallback: estimate tokens from response
@@ -174,7 +175,7 @@ export const chat = async (req, res) => {
                             totalTokens,
                             modelName: "gemini-2.5-flash",
                             questionPreview: question.substring(0, 200),
-                            contextTokens: 0, // Can be extracted from Python service
+                            contextTokens: 0,
                         });
                         // NEW: Add usage information to response headers
                         // (Note: Headers can't be sent after body, but we can send them early via SSE)

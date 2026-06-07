@@ -1,4 +1,4 @@
-import  pool  from "../../config/db.js";
+import pool from "../../config/db.js";
 import {
   TokenUsageLog,
   RecordTokenUsageParams,
@@ -25,12 +25,17 @@ const GEMINI_PRICING = {
 // GET ACTIVE PRICING RATE
 // ====================================================================
 export async function getActivePricingRate(
-  modelName: string = "gemini-2.5-flash"
+  modelName: string = "gemini-2.5-flash",
 ): Promise<PricingRate> {
   const result = await pool.query(
     `
-    SELECT id, model_name, prompt_token_rate_per_1k, completion_token_rate_per_1k,
-           effective_date, end_date, is_active, created_at
+    SELECT id, model_name AS "modelName", 
+           prompt_token_rate_per_1k AS "promptTokenRatePer1k", 
+           completion_token_rate_per_1k AS "completionTokenRatePer1k",
+           effective_date AS "effectiveDate", 
+           end_date AS "endDate", 
+           is_active AS "isActive", 
+           created_at AS "createdAt"
     FROM pricing_rates
     WHERE model_name = $1
     AND is_active = true
@@ -39,7 +44,7 @@ export async function getActivePricingRate(
     ORDER BY effective_date DESC
     LIMIT 1
     `,
-    [modelName]
+    [modelName],
   );
 
   if (result.rows.length === 0) {
@@ -65,11 +70,15 @@ export function calculateTokenCost(
   promptTokens: number,
   completionTokens: number,
   promptRatePer1k: number,
-  completionRatePer1k: number
-): { promptCostCents: number; completionCostCents: number; totalCents: number } {
+  completionRatePer1k: number,
+): {
+  promptCostCents: number;
+  completionCostCents: number;
+  totalCents: number;
+} {
   const promptCostCents = Math.ceil((promptTokens / 1000) * promptRatePer1k);
   const completionCostCents = Math.ceil(
-    (completionTokens / 1000) * completionRatePer1k
+    (completionTokens / 1000) * completionRatePer1k,
   );
   const totalCents = promptCostCents + completionCostCents;
 
@@ -80,7 +89,7 @@ export function calculateTokenCost(
 // RECORD TOKEN USAGE
 // ====================================================================
 export async function recordTokenUsage(
-  params: RecordTokenUsageParams
+  params: RecordTokenUsageParams,
 ): Promise<TokenUsageLog> {
   const {
     companyId,
@@ -95,16 +104,38 @@ export async function recordTokenUsage(
     contextTokens,
   } = params;
 
+  // NOTE: guard against NaN (e.g., Math.trunc(NaN) => NaN) which breaks Postgres integer inserts.
+  const safePromptTokens = Math.max(
+    0,
+    Math.trunc(
+      Number.isFinite(Number(promptTokens)) ? Number(promptTokens) : 0,
+    ),
+  );
+  const safeCompletionTokens = Math.max(
+    0,
+    Math.trunc(
+      Number.isFinite(Number(completionTokens)) ? Number(completionTokens) : 0,
+    ),
+  );
+  const safeTotalTokens = Math.max(
+    0,
+    Math.trunc(Number.isFinite(Number(totalTokens)) ? Number(totalTokens) : 0),
+  );
+  const safeContextTokens =
+    contextTokens == null || !Number.isFinite(Number(contextTokens))
+      ? null
+      : Math.trunc(Number(contextTokens));
+
   // Get current pricing rate
   const pricingRate = await getActivePricingRate(modelName);
 
-  // Calculate costs
+  // Calculate costs (use safe numeric values)
   const { promptCostCents, completionCostCents, totalCents } =
     calculateTokenCost(
-      promptTokens,
-      completionTokens,
+      safePromptTokens,
+      safeCompletionTokens,
       pricingRate.promptTokenRatePer1k,
-      pricingRate.completionTokenRatePer1k
+      pricingRate.completionTokenRatePer1k,
     );
 
   // Record usage
@@ -130,18 +161,19 @@ export async function recordTokenUsage(
       employeeId,
       sessionId,
       messageId || null,
-      promptTokens,
-      completionTokens,
-      totalTokens,
+      safePromptTokens,
+      safeCompletionTokens,
+      safeTotalTokens,
       promptCostCents,
+
       completionCostCents,
       totalCents,
       pricingRate.promptTokenRatePer1k,
       pricingRate.completionTokenRatePer1k,
       modelName,
       questionPreview || null,
-      contextTokens || null,
-    ]
+      safeContextTokens,
+    ],
   );
 
   const usageLog = result.rows[0];
@@ -154,9 +186,10 @@ export async function recordTokenUsage(
         completion_tokens_used = completion_tokens_used + $2,
         estimated_cost_cents = estimated_cost_cents + $3,
         updated_at = NOW()
+
     WHERE company_id = $4
     `,
-    [promptTokens, completionTokens, totalCents, companyId]
+    [safePromptTokens, safeCompletionTokens, totalCents, companyId],
   );
 
   // Update daily aggregate
@@ -183,11 +216,64 @@ export async function recordTokenUsage(
       companyId,
       employeeId,
       today,
-      promptTokens,
-      completionTokens,
-      totalTokens,
+      safePromptTokens,
+      safeCompletionTokens,
+      safeTotalTokens,
       totalCents,
-    ]
+    ],
+  );
+
+  // Update monthly aggregate (UPSERT)
+  const now = new Date();
+  const yearMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    .toISOString()
+    .split("T")[0];
+
+  const uniqueEmployeeCountResult = await pool.query(
+    `
+    SELECT COUNT(DISTINCT employee_id) AS unique_employees
+    FROM daily_usage_aggregates
+    WHERE company_id = $1
+      AND usage_date >= $2::date
+      AND usage_date < ($2::date + INTERVAL '1 month')
+    `,
+    [companyId, yearMonth],
+  );
+
+  const uniqueEmployees =
+    parseInt(uniqueEmployeeCountResult.rows[0]?.unique_employees || "0", 10) ||
+    0;
+
+  await pool.query(
+    `
+    INSERT INTO monthly_usage_aggregates (
+      company_id, year_month,
+      prompt_tokens_used, completion_tokens_used, total_tokens_used,
+      total_cost_cents, request_count, unique_employees,
+      created_at, updated_at
+    ) VALUES (
+      $1, $2, $3, $4, $5, $6, 1,
+      $7, NOW(), NOW()
+    )
+    ON CONFLICT (company_id, year_month)
+    DO UPDATE SET
+      prompt_tokens_used = monthly_usage_aggregates.prompt_tokens_used + $3,
+      completion_tokens_used = monthly_usage_aggregates.completion_tokens_used + $4,
+      total_tokens_used = monthly_usage_aggregates.total_tokens_used + $5,
+      total_cost_cents = monthly_usage_aggregates.total_cost_cents + $6,
+      request_count = monthly_usage_aggregates.request_count + 1,
+      unique_employees = $7,
+      updated_at = NOW()
+    `,
+    [
+      companyId,
+      yearMonth,
+      safePromptTokens,
+      safeCompletionTokens,
+      safeTotalTokens,
+      totalCents,
+      uniqueEmployees,
+    ],
   );
 
   return {
@@ -215,7 +301,7 @@ export async function recordTokenUsage(
 // CHECK USAGE LIMITS
 // ====================================================================
 export async function checkUsageLimits(
-  params: CheckUsageLimitParams
+  params: CheckUsageLimitParams,
 ): Promise<CheckLimitResponse> {
   const { companyId, promptTokens, completionTokens } = params;
 
@@ -229,7 +315,7 @@ export async function checkUsageLimits(
     JOIN subscription_plans sp ON cs.plan_id = sp.id
     WHERE cs.company_id = $1 AND cs.status = 'active'
     `,
-    [companyId]
+    [companyId],
   );
 
   if (subscriptionResult.rows.length === 0) {
@@ -253,31 +339,34 @@ export async function checkUsageLimits(
 
   // Calculate percentages and remaining tokens
   const promptPercentUsed = Math.round(
-    (projectedPromptUsage / monthlyPromptLimit) * 100
+    (projectedPromptUsage / monthlyPromptLimit) * 100,
   );
   const completionPercentUsed = Math.round(
-    (projectedCompletionUsage / monthlyCompletionLimit) * 100
+    (projectedCompletionUsage / monthlyCompletionLimit) * 100,
   );
-  const currentUsagePercent = Math.max(promptPercentUsed, completionPercentUsed);
+  const currentUsagePercent = Math.max(
+    promptPercentUsed,
+    completionPercentUsed,
+  );
 
   const promptTokensRemaining = Math.max(
     0,
-    monthlyPromptLimit - projectedPromptUsage
+    monthlyPromptLimit - projectedPromptUsage,
   );
   const completionTokensRemaining = Math.max(
     0,
-    monthlyCompletionLimit - projectedCompletionUsage
+    monthlyCompletionLimit - projectedCompletionUsage,
   );
   const tokensRemaining = Math.min(
     promptTokensRemaining,
-    completionTokensRemaining
+    completionTokensRemaining,
   );
 
   // Calculate days until reset
   const now = new Date();
   const resetDate = new Date(subscription.billing_cycle_end_date);
   const daysUntilReset = Math.ceil(
-    (resetDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+    (resetDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
   );
 
   return {
@@ -293,7 +382,7 @@ export async function checkUsageLimits(
 // ENFORCE USAGE LIMITS
 // ====================================================================
 export async function enforceUsageLimits(
-  params: CheckUsageLimitParams
+  params: CheckUsageLimitParams,
 ): Promise<void> {
   const limitStatus = await checkUsageLimits(params);
 
@@ -301,7 +390,7 @@ export async function enforceUsageLimits(
     throw new LimitExceededError(
       params.companyId,
       limitStatus.currentUsagePercent,
-      "monthly"
+      "monthly",
     );
   }
 }
@@ -310,7 +399,7 @@ export async function enforceUsageLimits(
 // GET CURRENT MONTH USAGE
 // ====================================================================
 export async function getCurrentMonthUsage(
-  companyId: string
+  companyId: string,
 ): Promise<MonthlyUsageAggregate> {
   // First day of current month
   const now = new Date();
@@ -326,7 +415,7 @@ export async function getCurrentMonthUsage(
     FROM monthly_usage_aggregates
     WHERE company_id = $1 AND year_month = $2
     `,
-    [companyId, yearMonthStr]
+    [companyId, yearMonthStr],
   );
 
   if (result.rows.length > 0) {
@@ -367,7 +456,7 @@ export async function getCurrentMonthUsage(
 // ====================================================================
 export async function getTodayUsage(
   companyId: string,
-  employeeId?: string
+  employeeId?: string,
 ): Promise<DailyUsageAggregate[]> {
   const today = new Date().toISOString().split("T")[0];
 
@@ -407,14 +496,12 @@ export async function getTodayUsage(
 // GET EMPLOYEE USAGE (MONTH/DAY)
 // ====================================================================
 export async function getEmployeeMonthlyUsage(
-  employeeId: string
+  employeeId: string,
 ): Promise<DailyUsageAggregate[]> {
   const now = new Date();
-  const firstDay = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    1
-  ).toISOString().split("T")[0];
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
+    .toISOString()
+    .split("T")[0];
 
   const result = await pool.query(
     `
@@ -425,7 +512,7 @@ export async function getEmployeeMonthlyUsage(
     WHERE employee_id = $1 AND usage_date >= $2
     ORDER BY usage_date DESC
     `,
-    [employeeId, firstDay]
+    [employeeId, firstDay],
   );
 
   return result.rows.map((row) => ({
@@ -451,7 +538,7 @@ export async function createUsageAlert(
   alertType: "usage_80" | "usage_100" | "overage" | "limit_exceeded",
   currentUsage: number,
   limitValue: number,
-  period: "daily" | "monthly"
+  period: "daily" | "monthly",
 ): Promise<void> {
   const percentageUsed = (currentUsage / limitValue) * 100;
   const alertDate = new Date().toISOString().split("T")[0];
@@ -463,7 +550,7 @@ export async function createUsageAlert(
     WHERE company_id = $1 AND alert_type = $2
     AND alert_date = $3 AND alert_period = $4
     `,
-    [companyId, alertType, alertDate, period]
+    [companyId, alertType, alertDate, period],
   );
 
   if (existingAlert.rows.length > 0) {
@@ -477,7 +564,15 @@ export async function createUsageAlert(
       percentage_used, is_notified, alert_period, alert_date, created_at
     ) VALUES ($1, $2, $3, $4, $5, false, $6, $7, NOW())
     `,
-    [companyId, alertType, currentUsage, limitValue, percentageUsed, period, alertDate]
+    [
+      companyId,
+      alertType,
+      currentUsage,
+      limitValue,
+      percentageUsed,
+      period,
+      alertDate,
+    ],
   );
 }
 
@@ -493,7 +588,7 @@ export async function getUnnotifiedAlerts() {
     WHERE is_notified = false
     AND created_at > NOW() - INTERVAL '24 hours'
     ORDER BY created_at DESC
-    `
+    `,
   );
 
   return result.rows;
@@ -509,7 +604,7 @@ export async function markAlertAsNotified(alertId: string): Promise<void> {
     SET is_notified = true, notified_at = NOW()
     WHERE id = $1
     `,
-    [alertId]
+    [alertId],
   );
 }
 
@@ -519,7 +614,7 @@ export async function markAlertAsNotified(alertId: string): Promise<void> {
 export async function getUsageLogs(
   companyId: string,
   limit: number = 100,
-  offset: number = 0
+  offset: number = 0,
 ): Promise<TokenUsageLog[]> {
   const result = await pool.query(
     `
@@ -533,7 +628,7 @@ export async function getUsageLogs(
     ORDER BY created_at DESC
     LIMIT $2 OFFSET $3
     `,
-    [companyId, limit, offset]
+    [companyId, limit, offset],
   );
 
   return result.rows.map((row) => ({

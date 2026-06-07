@@ -196,6 +196,7 @@ export const chat = async (
 
     response.data.on("end", async () => {
       try {
+        console.log(`[BillingChat] end() company=${companyId} employee=${employeeId} session=${sessionId}`);
         // ============================================================
         // NEW: EXTRACT AND RECORD TOKEN USAGE
         // ============================================================
@@ -222,9 +223,9 @@ export const chat = async (
 
           if (usage && usage.totalTokenCount > 0) {
             // Use actual Gemini tokens from API response
-            promptTokens = usage.promptTokenCount;
-            completionTokens = usage.candidatesTokenCount;
-            totalTokens = usage.totalTokenCount;
+            promptTokens = Number(usage.promptTokenCount) || 0;
+            completionTokens = Number(usage.candidatesTokenCount) || 0;
+            totalTokens = Number(usage.totalTokenCount) || 0;
           } else {
             // Fallback: estimate tokens from response
             // This is a rough estimate; actual tokens should come from Gemini
@@ -245,7 +246,7 @@ export const chat = async (
               totalTokens,
               modelName: "gemini-2.5-flash",
               questionPreview: question.substring(0, 200),
-              contextTokens: 0, // Can be extracted from Python service
+              contextTokens: 0,
             });
 
             // NEW: Add usage information to response headers
@@ -394,10 +395,16 @@ export const chatNonStreaming = async (
     // Extract message and tokens
     const assistantMessage = response.data?.message || "";
     const usage = response.data?.usage || {
-      promptTokens: 0,
-      completionTokens: 0,
+      promptTokens: 0, // Default to 0 if not provided
+      completionTokens: 0, // Default to 0 if not provided
     };
 
+    // Ensure token counts are numbers, defaulting to 0 if they are not valid numbers
+    const actualPromptTokens = Number(usage.promptTokens) || 0;
+    const actualCompletionTokens = Number(usage.completionTokens) || 0;
+    const actualTotalTokens = actualPromptTokens + actualCompletionTokens;
+
+    console.log(`[DEBUG] Token values before recordTokenUsage (non-streaming): promptTokens=${actualPromptTokens}, completionTokens=${actualCompletionTokens}, totalTokens=${actualTotalTokens}`);
     // Save messages
     await saveMessage({
       sessionId: sessionId!,
@@ -418,9 +425,9 @@ export const chatNonStreaming = async (
       employeeId,
       sessionId,
       messageId: undefined,
-      promptTokens: usage.promptTokens,
-      completionTokens: usage.completionTokens,
-      totalTokens: usage.promptTokens + usage.completionTokens,
+      promptTokens: actualPromptTokens,
+      completionTokens: actualCompletionTokens,
+      totalTokens: actualTotalTokens,
       modelName: "gemini-2.5-flash",
       questionPreview: question.substring(0, 200),
     });
@@ -430,13 +437,13 @@ export const chatNonStreaming = async (
       success: true,
       sessionId,
       message: assistantMessage,
-      usage: {
-        promptTokens: usage.promptTokens,
-        completionTokens: usage.completionTokens,
-        totalTokens: usage.promptTokens + usage.completionTokens,
+      usage: { // Return actual numeric values in the response
+        promptTokens: actualPromptTokens,
+        completionTokens: actualCompletionTokens,
+        totalTokens: actualTotalTokens,
         costCents: Math.ceil(
-          (usage.promptTokens / 1000) * 1 +
-          (usage.completionTokens / 1000) * 4
+          (actualPromptTokens / 1000) * 1 +
+          (actualCompletionTokens / 1000) * 4
         ),
       },
     });
