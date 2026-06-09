@@ -11,7 +11,7 @@ import { calculateTokenCost, getActivePricingRate } from "./usageTrackingService
 
 // ====================================================================
 // GET COMPANY SUBSCRIPTION
-// ====================================================================
+// ===========================================================================================
 export async function getCompanySubscription(
   companyId: string
 ): Promise<CompanySubscriptionWithPlan | null> {
@@ -64,7 +64,7 @@ export async function getCompanySubscription(
 
 // ====================================================================
 // CREATE COMPANY SUBSCRIPTION
-// ====================================================================
+// =================================================================================================
 export async function createCompanySubscription(
   companyId: string,
   planId: string
@@ -135,7 +135,7 @@ export async function createCompanySubscription(
   };
 }
 
-// ====================================================================
+// =========================================================================================
 // UPGRADE/DOWNGRADE PLAN
 // ====================================================================
 export async function buySubscription(
@@ -175,7 +175,7 @@ export async function changePlan(
   return getCompanySubscription(companyId) as Promise<CompanySubscriptionWithPlan>;
 }
 
-// ====================================================================
+// ===================================================================================================
 // GENERATE MONTHLY INVOICE
 // ====================================================================
 export async function generateMonthlyInvoice(companyId: string): Promise<BillingInvoice> {

@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- ====================================================================
+-- =========================================================================================
 -- SUBSCRIPTION PLANS
 -- ====================================================================
 CREATE TABLE IF NOT EXISTS subscription_plans (
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
 --     ('Enterprise', 'Large organizations', 100000000, 50000000, 49999, true)
 -- ON CONFLICT DO NOTHING;
 
--- ====================================================================
+-- ==============================================================================
 -- COMPANY SUBSCRIPTION (Billing/Plans)
 -- ====================================================================
 CREATE TABLE IF NOT EXISTS company_subscriptions (
