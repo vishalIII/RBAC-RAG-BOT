@@ -19,7 +19,7 @@ export class DocumentService {
     try {
       await client.query("BEGIN");
 
-      const result = await client.query(
+      const result = await client.query(                                                  
         `
       INSERT INTO documents (
         company_id,
@@ -52,7 +52,7 @@ export class DocumentService {
 
       const document = result.rows[0];
 
-      for (const departmentId of metadata.department_ids) {
+      for (const departmentId of metadata.department_ids) {                   
         await client.query(
           `
         INSERT INTO document_departments (

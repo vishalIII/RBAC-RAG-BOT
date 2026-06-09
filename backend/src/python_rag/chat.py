@@ -179,7 +179,7 @@ def rerank_documents(
     """
     Industry-standard two-stage reranking.
 
-    Pre-filter  → remove only corrupt/empty garbage (very low bar)
+    Pre-filter  → removing only corrupt/empty garbage (very low bar)
     Cohere      → semantic relevance (does the heavy lifting)
     Post-filter → trust Cohere score only, confidence is a blend signal only
     """
@@ -197,7 +197,7 @@ def rerank_documents(
 
     for doc, score in documents_with_scores:
         metadata = doc.metadata
-        confidence_score = metadata.get("confidence_score", 0.5)
+        confidence_score = metadata.get("confidence_score", 0.5)                        
         _debug_print(f"VECTOR SCORE: {score}")
         # Reject corrupted/empty chunks only
         if confidence_score < CORRUPTION_CONFIDENCE_MAX:
@@ -250,9 +250,9 @@ def rerank_documents(
             f"\nCONTENT:\n{doc.page_content}"
         )
 
-    # =====================================================
+    # =================================================================================
     # COHERE RERANK — the actual relevance engine
-    # =====================================================
+   
     try:
         response = co.rerank(
             model="rerank-v3.5",
@@ -287,10 +287,10 @@ def rerank_documents(
         doc.metadata["combined_score"] = round(combined, 3)
         reranked_docs.append(doc)
 
-    # =====================================================
+    # ==========================================================================
     # FINAL FALLBACK — if Cohere returns nothing useful
     # Never return empty — return best vector matches
-    # =====================================================
+
     # if not reranked_docs:
     #     _debug_print("WARNING: No docs passed rerank — falling back to filtered_docs")
     #     for doc in filtered_docs[:top_k]:
