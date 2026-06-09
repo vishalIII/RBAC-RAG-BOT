@@ -24,11 +24,11 @@ export class DocumentController {
       const { title, document_type, tags, department_ids } = metadata;
 
       if (!title) {
-        sendError(res, "Title is required", 400);
+        return sendError(res, "Title is required", 400);
       }
 
       if (!department_ids) {
-        sendError(res, "department ids is required", 400);
+        return sendError(res, "department ids is required", 400);
       }
 
       const document = await DocumentService.create(

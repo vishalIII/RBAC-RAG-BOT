@@ -26,11 +26,14 @@ export class DocumentService {
         title,
         file_name,
         file_path,
+        file_size,
+        mime_type,
         uploaded_by,
         document_type,
-        tags
+        tags,
+        status
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
       RETURNING *
       `,
         [
@@ -38,9 +41,12 @@ export class DocumentService {
           metadata.title,
           file.filename,
           file.path,
+          file.size,
+          file.mimetype,
           uploadedBy,
           metadata.document_type,
           metadata.tags,
+          'processing',
         ],
       );
 
@@ -119,6 +125,9 @@ export class DocumentService {
 
     let fileName = doc.file_name;
     let filePath = doc.file_path;
+    let fileSize = doc.file_size;
+    let mimeType = doc.mime_type;
+    let status = doc.status;
 
     if (file) {
       if (fs.existsSync(doc.file_path)) {
@@ -127,6 +136,9 @@ export class DocumentService {
 
       fileName = file.filename;
       filePath = file.path;
+      fileSize = file.size;
+      mimeType = file.mimetype;
+      status = 'processing';
     }
 
     const updated = await pool.query(
@@ -134,12 +146,16 @@ export class DocumentService {
     UPDATE documents
     SET title = $1,
         file_name = $2,
-        file_path = $3
-    WHERE id = $4
-      AND company_id = $5
+        file_path = $3,
+        file_size = $4,
+        mime_type = $5,
+        status = $6,
+        updated_at = NOW()
+    WHERE id = $7
+      AND company_id = $8
     RETURNING *
     `,
-      [title || doc.title, fileName, filePath, id, companyId],
+      [title || doc.title, fileName, filePath, fileSize, mimeType, status, id, companyId],
     );
 
     return updated.rows[0];

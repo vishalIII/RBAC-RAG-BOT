@@ -18,7 +18,7 @@ function sendValidationError(
 }
 
 export class EmployeeController {
-  static async create(req: Request, res: Response): Promise<void> {
+  static async create(req: Request, res: Response): Promise<void> {             
     try {
       const {
         employeeCode,
@@ -93,7 +93,7 @@ export class EmployeeController {
         employmentStatus !== "active" &&
         employmentStatus !== "inactive"
       ) {
-        sendValidationError(res, "employmentStatus must be active or inactive");
+        sendValidationError(res, "employmentStatus must be active or inactive");    
         return;
       }
 
@@ -128,7 +128,7 @@ export class EmployeeController {
         return;
       }
 
-      if (error instanceof Error && error.message === "DEPARTMENT_NOT_FOUND") {
+      if (error instanceof Error && error.message === "DEPARTMENT_NOT_FOUND") {   
         res.status(404).json({
           message: "Department not found",
         });
@@ -142,7 +142,7 @@ export class EmployeeController {
         return;
       }
 
-      if (error instanceof Error && error.message === "EMPLOYEE_CODE_EXISTS") {
+      if (error instanceof Error && error.message === "EMPLOYEE_CODE_EXISTS") {   
         res.status(409).json({
           message: "Employee code already exists",
         });
@@ -254,7 +254,7 @@ export class EmployeeController {
 
       if (firstName !== undefined) {
         if (!isNonEmptyString(firstName)) {
-          sendValidationError(res, "firstName must be a non-empty string");
+          sendValidationError(res, "firstName must be a non-empty string");     
           return;
         }
 
@@ -307,7 +307,7 @@ export class EmployeeController {
       }
 
       if (employmentStatus !== undefined) {
-        if (employmentStatus !== "active" && employmentStatus !== "inactive") {
+        if (employmentStatus !== "active" && employmentStatus !== "inactive") {     
           sendValidationError(
             res,
             "employmentStatus must be active or inactive",
@@ -471,7 +471,7 @@ export class EmployeeController {
         employmentStatus !== "active" &&
         employmentStatus !== "inactive"
       ) {
-        sendValidationError(res, "employmentStatus must be active or inactive");
+        sendValidationError(res, "employmentStatus must be active or inactive");     
         return;
       }
 
@@ -505,7 +505,7 @@ export class EmployeeController {
         return;
       }
 
-      if (error instanceof Error && error.message === "DEPARTMENT_NOT_FOUND") {
+      if (error instanceof Error && error.message === "DEPARTMENT_NOT_FOUND") {   
         res.status(404).json({
           message: "Department not found",
         });
