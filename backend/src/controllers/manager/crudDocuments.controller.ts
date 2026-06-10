@@ -19,7 +19,16 @@ export class DocumentController {
         });
       }
 
-      const metadata = JSON.parse(req.body.metadata);
+      if (!req.body.metadata) {
+        return sendError(res, "Metadata is required", 400);
+      }
+
+      let metadata;
+      try {
+        metadata = JSON.parse(req.body.metadata);
+      } catch (e) {
+        return sendError(res, "Invalid metadata JSON", 400);
+      }
 
       const { title, document_type, tags, department_ids } = metadata;
 
@@ -27,8 +36,8 @@ export class DocumentController {
         return sendError(res, "Title is required", 400);
       }
 
-      if (!department_ids) {
-        return sendError(res, "department ids is required", 400);
+      if (!department_ids || !Array.isArray(department_ids) || department_ids.length === 0) {
+        return sendError(res, "department_ids is required and must be an array and non-empty", 400);
       }
 
       const document = await DocumentService.create(

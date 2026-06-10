@@ -2,6 +2,11 @@ import pool from "../../config/db.js";
 import fs from "fs";
 import { IngestionService } from "../ingest/ingestion.service.js";
 
+import { QdrantClient } from "@qdrant/js-client-rest";
+
+const qdrant = new QdrantClient({ url: process.env.QDRANT_URL });
+const COLLECTION = process.env.QDRANT_COLLECTION; //  collection name
+
 export class DocumentService {
   static async create(
     companyId: string,
@@ -19,7 +24,9 @@ export class DocumentService {
     try {
       await client.query("BEGIN");
 
-      const result = await client.query(                                                  
+      
+
+      const result = await client.query(
         `
       INSERT INTO documents (
         company_id,
@@ -30,10 +37,9 @@ export class DocumentService {
         mime_type,
         uploaded_by,
         document_type,
-        tags,
-        status
+        tags
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
       RETURNING *
       `,
         [
@@ -45,14 +51,13 @@ export class DocumentService {
           file.mimetype,
           uploadedBy,
           metadata.document_type,
-          metadata.tags,
-          'processing',
+          metadata.tags || [],
         ],
       );
 
       const document = result.rows[0];
 
-      for (const departmentId of metadata.department_ids) {                   
+      for (const departmentId of metadata.department_ids) {
         await client.query(
           `
         INSERT INTO document_departments (
@@ -68,15 +73,15 @@ export class DocumentService {
       await client.query("COMMIT");
 
       await IngestionService.ingestDocument(
-        document.title,
-        document.document_type,
-        document.tags || [],
-        companyId,
-        metadata.department_ids,
-        document.id,
-        uploadedBy,
-        document.created_at.toISOString(),
-        document.file_path,
+        document.file_path,                // 1. filePath
+        document.title,                    // 2. title
+        document.document_type,            // 3. document_type
+        document.tags || [],               // 4. tags
+        metadata.department_ids || [],     // 5. department_ids
+        companyId,                         // 6. company_id
+        uploadedBy,                        // 7. uploadedBy
+        document.created_at.toISOString(), // 8. created_at
+        document.id,                       // 9. documentId
       );
 
       return document;
@@ -138,7 +143,7 @@ export class DocumentService {
       filePath = file.path;
       fileSize = file.size;
       mimeType = file.mimetype;
-      status = 'processing';
+      status = "processing";
     }
 
     const updated = await pool.query(
@@ -155,11 +160,38 @@ export class DocumentService {
       AND company_id = $8
     RETURNING *
     `,
-      [title || doc.title, fileName, filePath, fileSize, mimeType, status, id, companyId],
+      [
+        title || doc.title,
+        fileName,
+        filePath,
+        fileSize,
+        mimeType,
+        status,
+        id,
+        companyId,
+      ],
     );
 
     return updated.rows[0];
   }
+
+  // async function deleteDocument(documentId: string, tenantId: string) {
+  //   // 1. Delete from SQL
+  //   await db.query(
+  //     `DELETE FROM documents WHERE id = $1 AND tenant_id = $2`,
+  //     [documentId, tenantId]
+  //   );
+
+  //   // 2. Delete all vectors for this document from Qdrant
+  //   await qdrant.delete(COLLECTION, {
+  //     filter: {
+  //       must: [
+  //         { key: "document_id", match: { value: documentId } },
+  //         { key: "tenant_id",   match: { value: tenantId } },   // important for multi-tenant
+  //       ],
+  //     },
+  //   });
+  // }
 
   static async deleteDocument(companyId: string, id: string) {
     const existing = await pool.query(
@@ -181,6 +213,19 @@ export class DocumentService {
       "DELETE FROM documents WHERE id = $1 AND company_id = $2",
       [id, companyId],
     );
+
+    if (!COLLECTION) {
+      throw new Error("QDRANT_COLLECTION is not defined");
+    }
+
+    await qdrant.delete(COLLECTION, {
+      filter: {
+        must: [
+          { key: "document_id", match: { value: id } },
+          { key: "company_id", match: { value: companyId } }, // important for multi-tenant
+        ],
+      },
+    });
 
     return true;
   }

@@ -289,18 +289,29 @@ def build_metadata(
 
 
 def ingest_pdf() -> None:
-    # pdf_path = get_pdf_path()
+    def parse_list_arg(arg: str) -> list[str]:
+        if not arg or arg.strip() == "":
+            return []
+        try:
+            data = json.loads(arg)
+            return data if isinstance(data, list) else [str(data)]
+        except (json.JSONDecodeError, TypeError):
+            # Fallback for comma-separated strings or plain text
+            return [item.strip() for item in arg.split(",") if item.strip()]
+
     pdf_path = Path(sys.argv[1])
 
     title = sys.argv[2]
 
     document_type = sys.argv[3]
 
-    tags = json.loads(sys.argv[4])
+    tags = parse_list_arg(sys.argv[4])
 
-    company_id = sys.argv[5]
+    department_ids = parse_list_arg(sys.argv[5])
 
-    department_ids = json.loads(sys.argv[6])
+    print("ARGV:", sys.argv)
+
+    company_id = sys.argv[6]
 
     uploaded_by = sys.argv[7]
 
