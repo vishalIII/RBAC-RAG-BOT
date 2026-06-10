@@ -109,69 +109,181 @@ export class DocumentService {
     return result.rows[0] || null;
   }
 
+
   static async updateDocument(
-    companyId: string,
-    id: string,
-    title?: string,
-    file?: Express.Multer.File,
-  ) {
-    const existing = await pool.query(
-      "SELECT * FROM documents WHERE id = $1 AND company_id = $2",
-      [id, companyId],
-    );
+  companyId: string,
+  id: string,
+  data: {
+    title?: string;
+    document_type?: string;
+    tags?: string[];
+    department_ids?: string[];
+  },
+  file?: Express.Multer.File,
+) {
+  const existing = await pool.query(
+    "SELECT * FROM documents WHERE id = $1 AND company_id = $2",
+    [id, companyId],
+  );
 
-    if (!existing.rows.length) {
-      return null;
-    }
+  if (!existing.rows.length) {
+    return null;
+  }
 
-    const doc = existing.rows[0];
+  const doc = existing.rows[0];
+  const oldFilePath = doc.file_path;
 
-    let fileName = doc.file_name;
-    let filePath = doc.file_path;
-    let fileSize = doc.file_size;
-    let mimeType = doc.mime_type;
-    let status = doc.status;
+  const title = data.title ?? doc.title;
+  const documentType = data.document_type ?? doc.document_type;
+  const tags = data.tags ?? doc.tags ?? [];
 
-    if (file) {
-      if (fs.existsSync(doc.file_path)) {
-        fs.unlinkSync(doc.file_path);
-      }
+  let fileName = doc.file_name;
+  let filePath = doc.file_path;
+  let fileSize = doc.file_size;
+  let mimeType = doc.mime_type;
 
-      fileName = file.filename;
-      filePath = file.path;
-      fileSize = file.size;
-      mimeType = file.mimetype;
-      status = "processing";
-    }
+  if (file) {
+    fileName = file.filename;
+    filePath = file.path;
+    fileSize = file.size;
+    mimeType = file.mimetype;
+  }
 
-    const updated = await pool.query(
-      `
+  const updated = await pool.query(
+    `
     UPDATE documents
     SET title = $1,
-        file_name = $2,
-        file_path = $3,
-        file_size = $4,
-        mime_type = $5,
-        status = $6,
+        document_type = $2,
+        tags = $3,
+        file_name = $4,
+        file_path = $5,
+        file_size = $6,
+        mime_type = $7,
         updated_at = NOW()
-    WHERE id = $7
-      AND company_id = $8
+    WHERE id = $8
+      AND company_id = $9
     RETURNING *
     `,
-      [
-        title || doc.title,
-        fileName,
-        filePath,
-        fileSize,
-        mimeType,
-        status,
-        id,
-        companyId,
-      ],
+    [
+      title,
+      documentType,
+      tags,
+      fileName,
+      filePath,
+      fileSize,
+      mimeType,
+      id,
+      companyId,
+    ],
+  );
+
+  const updatedDoc = updated.rows[0];
+
+  // Update department mappings if supplied
+  if (data.department_ids) {
+    await pool.query(
+      "DELETE FROM document_departments WHERE document_id = $1",
+      [id],
     );
 
-    return updated.rows[0];
+    for (const departmentId of data.department_ids) {
+      await pool.query(
+        `
+        INSERT INTO document_departments (
+          document_id,
+          department_id
+        )
+        VALUES ($1, $2)
+        `,
+        [id, departmentId],
+      );
+    }
   }
+
+  const metadataChanged =
+    data.title !== undefined ||
+    data.document_type !== undefined ||
+    data.tags !== undefined ||
+    data.department_ids !== undefined;
+
+  // No need to touch Qdrant
+  if (!file && !metadataChanged) {
+    return updatedDoc;
+  }
+
+  if (!COLLECTION) {
+    throw new Error("QDRANT_COLLECTION is not defined");
+  }
+
+  const deptResult = await pool.query(
+    `
+    SELECT department_id
+    FROM document_departments
+    WHERE document_id = $1
+    `,
+    [id],
+  );
+
+  const departmentIds = deptResult.rows.map(
+    (row) => row.department_id,
+  );
+
+  try {
+    // Delete existing chunks
+    await qdrant.delete(COLLECTION, {
+      wait: true,
+      filter: {
+        must: [
+          {
+            key: "metadata.document_id",
+            match: {
+              value: id,
+            },
+          },
+          {
+            key: "metadata.company_id",
+            match: {
+              value: companyId,
+            },
+          },
+        ],
+      },
+    });
+
+    // Re-ingest using latest metadata
+    await IngestionService.ingestDocument(
+      updatedDoc.file_path,
+      updatedDoc.title,
+      updatedDoc.document_type,
+      updatedDoc.tags || [],
+      departmentIds,
+      companyId,
+      updatedDoc.uploaded_by,
+      updatedDoc.created_at.toISOString(),
+      updatedDoc.id,
+    );
+
+    // Remove old physical file only after successful re-ingestion
+    if (
+      file &&
+      oldFilePath &&
+      oldFilePath !== updatedDoc.file_path &&
+      fs.existsSync(oldFilePath)
+    ) {
+      fs.unlinkSync(oldFilePath);
+    }
+
+    return updatedDoc;
+  } catch (error) {
+    console.error(
+      `Failed to re-ingest document ${id}`,
+      error,
+    );
+
+    throw error;
+  }
+}
+
 
   // async function deleteDocument(documentId: string, tenantId: string) {
   //   // 1. Delete from SQL

@@ -36,8 +36,16 @@ export class DocumentController {
         return sendError(res, "Title is required", 400);
       }
 
-      if (!department_ids || !Array.isArray(department_ids) || department_ids.length === 0) {
-        return sendError(res, "department_ids is required and must be an array and non-empty", 400);
+      if (
+        !department_ids ||
+        !Array.isArray(department_ids) ||
+        department_ids.length === 0
+      ) {
+        return sendError(
+          res,
+          "department_ids is required and must be an array and non-empty",
+          400,
+        );
       }
 
       const document = await DocumentService.create(
@@ -108,36 +116,59 @@ export class DocumentController {
   }
 
   static async update(req: Request, res: Response) {
-    try {
-      const companyId = req.user?.companyId;
-      const id = Array.isArray(req.params.id)
-        ? req.params.id[0]
-        : req.params.id;
+  try {
+    const companyId = req.user?.companyId;
+    const id = Array.isArray(req.params.id)
+      ? req.params.id[0]
+      : req.params.id;
 
-      if (!companyId) {
-        return res.status(401).json({
-          message: "Unauthorized",
-        });
-      }
-
-      const document = await DocumentService.updateDocument(
-        companyId,
-        id,
-        req.body.title,
-        req.file as Express.Multer.File | undefined,
-      );
-
-      if (!document) {
-        return res.status(404).json({
-          message: "Document not found",
-        });
-      }
-
-      return res.json(document);
-    } catch (error) {
-      return res.status(500).json(error);
+    if (!companyId) {
+      return res.status(401).json({
+        message: "Unauthorized",
+      });
     }
+
+    let metadata: {
+      title?: string;
+      document_type?: string;
+      tags?: string[];
+      department_ids?: string[];
+    } = {};
+
+    if (req.body.metadata) {
+      try {
+        metadata = JSON.parse(req.body.metadata);
+      } catch (error) {
+        return res.status(400).json({
+          message: "Invalid metadata JSON",
+        });
+      }
+    }
+
+    const document = await DocumentService.updateDocument(
+      companyId,
+      id,
+      metadata,
+      req.file as Express.Multer.File | undefined,
+    );
+
+    if (!document) {
+      return res.status(404).json({
+        message: "Document not found",
+      });
+    }
+
+    return res.json(document);
+  } catch (error: any) {
+    console.error(error);
+
+    return res.status(500).json({
+      message: error.message,
+      detail: error.detail,
+      code: error.code,
+    });
   }
+}
 
   static async remove(req: Request, res: Response) {
     try {
