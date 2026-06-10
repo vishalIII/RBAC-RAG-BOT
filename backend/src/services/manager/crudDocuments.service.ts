@@ -24,8 +24,6 @@ export class DocumentService {
     try {
       await client.query("BEGIN");
 
-      
-
       const result = await client.query(
         `
       INSERT INTO documents (
@@ -73,15 +71,15 @@ export class DocumentService {
       await client.query("COMMIT");
 
       await IngestionService.ingestDocument(
-        document.file_path,                // 1. filePath
-        document.title,                    // 2. title
-        document.document_type,            // 3. document_type
-        document.tags || [],               // 4. tags
-        metadata.department_ids || [],     // 5. department_ids
-        companyId,                         // 6. company_id
-        uploadedBy,                        // 7. uploadedBy
+        document.file_path, // 1. filePath
+        document.title, // 2. title
+        document.document_type, // 3. document_type
+        document.tags || [], // 4. tags
+        metadata.department_ids || [], // 5. department_ids
+        companyId, // 6. company_id
+        uploadedBy, // 7. uploadedBy
         document.created_at.toISOString(), // 8. created_at
-        document.id,                       // 9. documentId
+        document.id, // 9. documentId
       );
 
       return document;
@@ -218,14 +216,44 @@ export class DocumentService {
       throw new Error("QDRANT_COLLECTION is not defined");
     }
 
-    await qdrant.delete(COLLECTION, {
+    // BEFORE DELETING
+    const points = await qdrant.scroll(COLLECTION, {
       filter: {
         must: [
-          { key: "document_id", match: { value: id } },
-          { key: "company_id", match: { value: companyId } }, // important for multi-tenant
+          {
+            key: "metadata.document_id",
+            match: {
+              value: id,
+            },
+          },
+        ],
+      },
+      limit: 100,
+    });
+
+    console.log(`Found ${points.points.length} chunks for document ${id}`);
+
+    const deleteResult = await qdrant.delete(COLLECTION, {
+      wait: true,
+      filter: {
+        must: [
+          {
+            key: "metadata.document_id",
+            match: {
+              value: id,
+            },
+          },
+          {
+            key: "metadata.company_id",
+            match: {
+              value: companyId,
+            },
+          },
         ],
       },
     });
+
+    console.log(deleteResult);
 
     return true;
   }
