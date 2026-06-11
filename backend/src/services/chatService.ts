@@ -89,3 +89,33 @@ export async function getRecentMessages(
 
   return result.rows.reverse();
 }
+
+
+
+
+type CreateNoAnswerLogParams = {
+  companyId: string;
+  employeeId: string;
+  question: string;
+  reason: string;
+};
+
+export const createNoAnswerLog = async ({
+  companyId,
+  employeeId,
+  question,
+  reason,
+}: CreateNoAnswerLogParams) => {
+  await pool.query(
+    `
+    INSERT INTO no_answer_logs (
+      company_id,
+      employee_id,
+      question,
+      reason
+    )
+    VALUES ($1, $2, $3, $4)
+    `,
+    [companyId, employeeId, question, reason]
+  );
+};

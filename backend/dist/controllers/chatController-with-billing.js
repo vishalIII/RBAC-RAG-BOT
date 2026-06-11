@@ -54,10 +54,13 @@ export const chat = async (req, res) => {
         // NEW: CHECK USAGE LIMITS
         // ================================================================
         try {
+            // Pre-check can cause false 429s because completion tokens are unknown.
+            // Use a minimal completion estimate or skip completion estimate.
+            // We keep prompt estimate to catch obvious overages early.
             const limitStatus = await checkUsageLimits({
                 companyId,
                 promptTokens: Math.ceil(question.length / 4), // Rough estimate
-                completionTokens: 500, // Conservative estimate
+                completionTokens: 0, // Avoid false positives before we have real token usage
             });
             if (!limitStatus.isWithinLimit) {
                 return res.status(429).json({
@@ -138,13 +141,12 @@ export const chat = async (req, res) => {
                 const assistantMessage = extractSseData(assistantStream).trim();
                 if (assistantMessage) {
                     // Save assistant message to database
-                    // chatService.saveMessage currently returns void, so we cannot capture messageId.
                     await saveMessage({
                         sessionId: sessionId,
                         role: "assistant",
                         content: assistantMessage,
                     });
-                    messageId = undefined;
+                    messageId = undefined; // saveMessage returns void; cannot capture ID yet
                     // Extract usage metadata from streamed response
                     const usage = extractGeminiUsageMetadata(assistantStream);
                     let promptTokens = 0;
@@ -249,10 +251,11 @@ export const chatNonStreaming = async (req, res) => {
             });
         }
         // Check limits
+        // Avoid false positives: completion tokens are unknown before generation.
         const limitStatus = await checkUsageLimits({
             companyId,
             promptTokens: Math.ceil(question.length / 4),
-            completionTokens: 500,
+            completionTokens: 0,
         });
         if (!limitStatus.isWithinLimit) {
             return res.status(429).json({
@@ -284,9 +287,14 @@ export const chatNonStreaming = async (req, res) => {
         // Extract message and tokens
         const assistantMessage = response.data?.message || "";
         const usage = response.data?.usage || {
-            promptTokens: 0,
-            completionTokens: 0,
+            promptTokens: 0, // Default to 0 if not provided
+            completionTokens: 0, // Default to 0 if not provided
         };
+        // Ensure token counts are numbers, defaulting to 0 if they are not valid numbers
+        const actualPromptTokens = Number(usage.promptTokens) || 0;
+        const actualCompletionTokens = Number(usage.completionTokens) || 0;
+        const actualTotalTokens = actualPromptTokens + actualCompletionTokens;
+        console.log(`[DEBUG] Token values before recordTokenUsage (non-streaming): promptTokens=${actualPromptTokens}, completionTokens=${actualCompletionTokens}, totalTokens=${actualTotalTokens}`);
         // Save messages
         await saveMessage({
             sessionId: sessionId,
@@ -305,9 +313,9 @@ export const chatNonStreaming = async (req, res) => {
             employeeId,
             sessionId,
             messageId: undefined,
-            promptTokens: usage.promptTokens,
-            completionTokens: usage.completionTokens,
-            totalTokens: usage.promptTokens + usage.completionTokens,
+            promptTokens: actualPromptTokens,
+            completionTokens: actualCompletionTokens,
+            totalTokens: actualTotalTokens,
             modelName: "gemini-2.5-flash",
             questionPreview: question.substring(0, 200),
         });
@@ -317,11 +325,11 @@ export const chatNonStreaming = async (req, res) => {
             sessionId,
             message: assistantMessage,
             usage: {
-                promptTokens: usage.promptTokens,
-                completionTokens: usage.completionTokens,
-                totalTokens: usage.promptTokens + usage.completionTokens,
-                costCents: Math.ceil((usage.promptTokens / 1000) * 1 +
-                    (usage.completionTokens / 1000) * 4),
+                promptTokens: actualPromptTokens,
+                completionTokens: actualCompletionTokens,
+                totalTokens: actualTotalTokens,
+                costCents: Math.ceil((actualPromptTokens / 1000) * 1 +
+                    (actualCompletionTokens / 1000) * 4),
             },
         });
     }

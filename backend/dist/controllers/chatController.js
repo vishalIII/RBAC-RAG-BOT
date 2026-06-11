@@ -1,9 +1,9 @@
 import axios from "axios";
-import { createSession, saveMessage, getRecentMessages, } from "../services/chatService.js";
-import { buildSessionTitle, formatConversationHistory, extractSseData, normalizeSessionId, } from "../utils/chatHelpers.js";
+import { createSession, saveMessage, getRecentMessages, createNoAnswerLog } from "../services/chatService.js";
+import { buildSessionTitle, formatConversationHistory, extractSseData, normalizeSessionId } from "../utils/chatHelpers.js";
 export const chat = async (req, res) => {
     try {
-        const { question, sessionId: requestedSessionId, session_id, } = req.body;
+        const { question, sessionId: requestedSessionId, session_id } = req.body;
         const companyId = req.user?.companyId;
         const employeeId = req.employee?.id;
         const departmentId = req.employee?.department_id;
@@ -26,8 +26,7 @@ export const chat = async (req, res) => {
                 error: "Employee not found",
             });
         }
-        const existingSessionId = normalizeSessionId(requestedSessionId) ||
-            normalizeSessionId(session_id);
+        const existingSessionId = normalizeSessionId(requestedSessionId) || normalizeSessionId(session_id);
         const sessionId = existingSessionId ||
             (await createSession({
                 companyId,
@@ -60,8 +59,18 @@ export const chat = async (req, res) => {
             responseType: "stream",
         });
         let assistantStream = "";
+        let noAnswerReason = null;
         response.data.on("data", (chunk) => {
-            assistantStream += chunk.toString();
+            const text = chunk.toString();
+            assistantStream += text;
+            const eventMatch = /event:\s*no_answer\s*[\r\n]+data:\s*(.+)/.exec(text);
+            if (eventMatch) {
+                try {
+                    const payload = JSON.parse(eventMatch[1]);
+                    noAnswerReason = payload.reason;
+                }
+                catch { }
+            }
             res.write(chunk);
         });
         response.data.on("end", async () => {
@@ -72,6 +81,14 @@ export const chat = async (req, res) => {
                         sessionId,
                         role: "assistant",
                         content: assistantMessage,
+                    });
+                }
+                if (noAnswerReason) {
+                    await createNoAnswerLog({
+                        companyId,
+                        employeeId,
+                        question,
+                        reason: noAnswerReason,
                     });
                 }
             }

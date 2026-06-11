@@ -41,3 +41,14 @@ export async function getRecentMessages(sessionId, limit = 6) {
     `, [sessionId, limit]);
     return result.rows.reverse();
 }
+export const createNoAnswerLog = async ({ companyId, employeeId, question, reason, }) => {
+    await pool.query(`
+    INSERT INTO no_answer_logs (
+      company_id,
+      employee_id,
+      question,
+      reason
+    )
+    VALUES ($1, $2, $3, $4)
+    `, [companyId, employeeId, question, reason]);
+};

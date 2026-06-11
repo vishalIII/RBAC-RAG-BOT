@@ -419,6 +419,7 @@ async def ask_question_stream(
     )
 
     # =========================================
+    
     # RETRIEVAL
 
     effective_query = question
@@ -438,8 +439,13 @@ async def ask_question_stream(
     )
 
     if not documents_with_scores:
-
+        print("no documents found")
         async def no_context():
+            yield (
+                "event: metadata\n"
+                "data: {\"type\":\"no_answer\",\"reason\":\"NO_DOCUMENTS_FOUND\"}\n\n"
+            )
+            
             yield f"data: {NO_CONTEXT_RESPONSE}\n\n"
 
         return no_context()
@@ -456,8 +462,13 @@ async def ask_question_stream(
     reranked_docs = deduplicate_documents(reranked_docs)
 
     if not reranked_docs:
-
+        print("no documents found")
         async def no_context():
+            yield (
+                "event: metadata\n"
+                "data: {\"type\":\"no_answer\",\"reason\":\"NO_RELEVANT_DOCUMENTS\"}\n\n"
+            )
+            
             yield f"data: {NO_CONTEXT_RESPONSE}\n\n"
 
         return no_context()
@@ -468,10 +479,13 @@ async def ask_question_stream(
     context = build_context(reranked_docs)
 
     if not context.strip():
-
+        print("no documents found")
         async def no_context():
-            yield f"data: {NO_CONTEXT_RESPONSE}\n\n"
-
+             yield (
+                "event: metadata\n"
+                "data: {\"type\":\"no_answer\",\"reason\":\"EMPTY_CONTEXT\"}\n\n"
+            )
+             yield f"data: {NO_CONTEXT_RESPONSE}\n\n"
         return no_context()
 
     # =========================================

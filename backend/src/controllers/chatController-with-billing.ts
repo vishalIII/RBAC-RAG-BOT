@@ -98,10 +98,13 @@ export const chat = async (
     // NEW: CHECK USAGE LIMITS
     // ================================================================
     try {
+      // Pre-check can cause false 429s because completion tokens are unknown.
+      // Use a minimal completion estimate or skip completion estimate.
+      // We keep prompt estimate to catch obvious overages early.
       const limitStatus = await checkUsageLimits({
         companyId,
         promptTokens: Math.ceil(question.length / 4), // Rough estimate
-        completionTokens: 500, // Conservative estimate
+        completionTokens: 0, // Avoid false positives before we have real token usage
       });
 
       if (!limitStatus.isWithinLimit) {
@@ -170,6 +173,10 @@ export const chat = async (
 
     // ================================================================
     // STREAMING FROM AI SERVICE
+
+    // Debug: log subscription limits check inputs (to confirm why we get 429)
+    // NOTE: this is removed automatically if you revert this change.
+
     // ================================================================
     const response = await axios({
       method: "post",
@@ -205,14 +212,12 @@ export const chat = async (
 
         if (assistantMessage) {
           // Save assistant message to database
-          // chatService.saveMessage currently returns void, so we cannot capture messageId.
           await saveMessage({
             sessionId: sessionId!,
             role: "assistant",
             content: assistantMessage,
           });
-
-          messageId = undefined;
+          messageId = undefined; // saveMessage returns void; cannot capture ID yet
 
           // Extract usage metadata from streamed response
           const usage = extractGeminiUsageMetadata(assistantStream);
@@ -346,10 +351,11 @@ export const chatNonStreaming = async (
     }
 
     // Check limits
+    // Avoid false positives: completion tokens are unknown before generation.
     const limitStatus = await checkUsageLimits({
       companyId,
       promptTokens: Math.ceil(question.length / 4),
-      completionTokens: 500,
+      completionTokens: 0,
     });
 
     if (!limitStatus.isWithinLimit) {

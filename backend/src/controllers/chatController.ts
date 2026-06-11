@@ -4,14 +4,14 @@ import axios from "axios";
 import {
   createSession,
   saveMessage,
-  getRecentMessages,
+  getRecentMessages, createNoAnswerLog
 } from "../services/chatService.js";
 
 import {
   buildSessionTitle,
   formatConversationHistory,
   extractSseData,
-  normalizeSessionId,
+  normalizeSessionId
 } from "../utils/chatHelpers.js";
 
 type ChatRequestBody = {
@@ -23,21 +23,17 @@ type ChatRequestBody = {
 
 export const chat = async (
   req: Request<{}, {}, ChatRequestBody>,
-  res: Response
+  res: Response,
 ) => {
   try {
-    const {
-      question,
-      sessionId: requestedSessionId,
-      session_id,
-    } = req.body;
+    const { question, sessionId: requestedSessionId, session_id } = req.body;
 
     const companyId = req.user?.companyId;
     const employeeId = req.employee?.id;
     const departmentId = req.employee?.department_id;
 
     console.log(
-      `[${question}] | company=${companyId} | employee=${employeeId}`
+      `[${question}] | company=${companyId} | employee=${employeeId}`,
     );
 
     if (!question?.trim()) {
@@ -62,8 +58,7 @@ export const chat = async (
     }
 
     const existingSessionId =
-      normalizeSessionId(requestedSessionId) ||
-      normalizeSessionId(session_id);
+      normalizeSessionId(requestedSessionId) || normalizeSessionId(session_id);
 
     const sessionId =
       existingSessionId ||
@@ -77,8 +72,7 @@ export const chat = async (
       ? await getRecentMessages(sessionId)
       : [];
 
-    const conversationHistory =
-      formatConversationHistory(recentMessages);
+    const conversationHistory = formatConversationHistory(recentMessages);
 
     await saveMessage({
       sessionId,
@@ -87,14 +81,8 @@ export const chat = async (
     });
 
     res.setHeader("X-Session-Id", sessionId);
-    res.setHeader(
-      "Content-Type",
-      "text/event-stream; charset=utf-8"
-    );
-    res.setHeader(
-      "Cache-Control",
-      "no-cache, no-transform"
-    );
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
 
     res.flushHeaders?.();
@@ -112,16 +100,27 @@ export const chat = async (
     });
 
     let assistantStream = "";
-
+    let noAnswerReason: string | null = null;
     response.data.on("data", (chunk: Buffer) => {
-      assistantStream += chunk.toString();
+      const text = chunk.toString();
+
+      assistantStream += text;
+
+      const eventMatch = /event:\s*no_answer\s*[\r\n]+data:\s*(.+)/.exec(text);
+
+      if (eventMatch) {
+        try {
+          const payload = JSON.parse(eventMatch[1]);
+          noAnswerReason = payload.reason;
+        } catch {}
+      }
+
       res.write(chunk);
     });
 
     response.data.on("end", async () => {
       try {
-        const assistantMessage =
-          extractSseData(assistantStream).trim();
+        const assistantMessage = extractSseData(assistantStream).trim();
 
         if (assistantMessage) {
           await saveMessage({
@@ -130,11 +129,17 @@ export const chat = async (
             content: assistantMessage,
           });
         }
+
+        if (noAnswerReason) {
+          await createNoAnswerLog({
+            companyId,
+            employeeId,
+            question,
+            reason: noAnswerReason,
+          });
+        }
       } catch (error: any) {
-        console.error(
-          "Could not save assistant message:",
-          error.message
-        );
+        console.error("Could not save assistant message:", error.message);
       }
 
       res.end();

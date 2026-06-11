@@ -15,13 +15,24 @@ export class DocumentController {
                     message: "File required",
                 });
             }
-            const metadata = JSON.parse(req.body.metadata);
+            if (!req.body.metadata) {
+                return sendError(res, "Metadata is required", 400);
+            }
+            let metadata;
+            try {
+                metadata = JSON.parse(req.body.metadata);
+            }
+            catch (e) {
+                return sendError(res, "Invalid metadata JSON", 400);
+            }
             const { title, document_type, tags, department_ids } = metadata;
             if (!title) {
-                sendError(res, "Title is required", 400);
+                return sendError(res, "Title is required", 400);
             }
-            if (!department_ids) {
-                sendError(res, "department ids is required", 400);
+            if (!department_ids ||
+                !Array.isArray(department_ids) ||
+                department_ids.length === 0) {
+                return sendError(res, "department_ids is required and must be an array and non-empty", 400);
             }
             const document = await DocumentService.create(companyId, userId, metadata, req.file);
             return res.status(201).json(document);
@@ -87,7 +98,18 @@ export class DocumentController {
                     message: "Unauthorized",
                 });
             }
-            const document = await DocumentService.updateDocument(companyId, id, req.body.title, req.file);
+            let metadata = {};
+            if (req.body.metadata) {
+                try {
+                    metadata = JSON.parse(req.body.metadata);
+                }
+                catch (error) {
+                    return res.status(400).json({
+                        message: "Invalid metadata JSON",
+                    });
+                }
+            }
+            const document = await DocumentService.updateDocument(companyId, id, metadata, req.file);
             if (!document) {
                 return res.status(404).json({
                     message: "Document not found",
@@ -96,7 +118,12 @@ export class DocumentController {
             return res.json(document);
         }
         catch (error) {
-            return res.status(500).json(error);
+            console.error(error);
+            return res.status(500).json({
+                message: error.message,
+                detail: error.detail,
+                code: error.code,
+            });
         }
     }
     static async remove(req, res) {

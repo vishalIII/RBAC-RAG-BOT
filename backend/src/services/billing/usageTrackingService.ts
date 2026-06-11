@@ -305,6 +305,8 @@ export async function checkUsageLimits(
 ): Promise<CheckLimitResponse> {
   const { companyId, promptTokens, completionTokens } = params;
 
+  console.log(`[checkUsageLimits] Input params: companyId=${companyId}, promptTokens=${promptTokens}, completionTokens=${completionTokens}`);
+
   // Get company subscription
   const subscriptionResult = await pool.query(
     `
@@ -323,10 +325,12 @@ export async function checkUsageLimits(
   }
 
   const subscription = subscriptionResult.rows[0];
-  const monthlyPromptLimit = subscription.monthly_prompt_tokens;
-  const monthlyCompletionLimit = subscription.monthly_completion_tokens;
-  const currentPromptUsed = subscription.prompt_tokens_used;
-  const currentCompletionUsed = subscription.completion_tokens_used;
+  const monthlyPromptLimit = Number(subscription.monthly_prompt_tokens);
+  const monthlyCompletionLimit = Number(subscription.monthly_completion_tokens);
+  const currentPromptUsed = Number(subscription.prompt_tokens_used);
+  const currentCompletionUsed = Number(subscription.completion_tokens_used);
+
+  console.log(`[checkUsageLimits] DB values: monthlyPromptLimit=${monthlyPromptLimit}, monthlyCompletionLimit=${monthlyCompletionLimit}, currentPromptUsed=${currentPromptUsed}, currentCompletionUsed=${currentCompletionUsed}`);
 
   // Calculate projected usage
   const projectedPromptUsage = currentPromptUsed + promptTokens;
@@ -337,12 +341,14 @@ export async function checkUsageLimits(
   const completionExceeded = projectedCompletionUsage > monthlyCompletionLimit;
   const isWithinLimit = !promptExceeded && !completionExceeded;
 
+  console.log(`[checkUsageLimits] Exceeded status: promptExceeded=${promptExceeded}, completionExceeded=${completionExceeded}, isWithinLimit=${isWithinLimit}`);
+
   // Calculate percentages and remaining tokens
   const promptPercentUsed = Math.round(
-    (projectedPromptUsage / monthlyPromptLimit) * 100,
+    (monthlyPromptLimit === 0 ? 0 : (projectedPromptUsage / monthlyPromptLimit) * 100),
   );
   const completionPercentUsed = Math.round(
-    (projectedCompletionUsage / monthlyCompletionLimit) * 100,
+    (monthlyCompletionLimit === 0 ? 0 : (projectedCompletionUsage / monthlyCompletionLimit) * 100),
   );
   const currentUsagePercent = Math.max(
     promptPercentUsed,
@@ -362,6 +368,8 @@ export async function checkUsageLimits(
     completionTokensRemaining,
   );
 
+  console.log(`[checkUsageLimits] Calculated details: promptPercentUsed=${promptPercentUsed}, completionPercentUsed=${completionPercentUsed}, currentUsagePercent=${currentUsagePercent}, promptTokensRemaining=${promptTokensRemaining}, completionTokensRemaining=${completionTokensRemaining}, tokensRemaining=${tokensRemaining}`);
+
   // Calculate days until reset
   const now = new Date();
   const resetDate = new Date(subscription.billing_cycle_end_date);
@@ -376,6 +384,10 @@ export async function checkUsageLimits(
     willExceedLimit: !isWithinLimit,
     daysUntilReset: Math.max(0, daysUntilReset),
   };
+
+  // console.log(`[checkUsageLimits] Returning response: ${JSON.stringify(response)}`);
+
+  // return response;
 }
 
 // ====================================================================

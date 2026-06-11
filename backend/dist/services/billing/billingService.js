@@ -2,7 +2,7 @@ import pool from "../../config/db.js";
 import { calculateTokenCost, getActivePricingRate } from "./usageTrackingService.js";
 // ====================================================================
 // GET COMPANY SUBSCRIPTION
-// ====================================================================
+// ===========================================================================================
 export async function getCompanySubscription(companyId) {
     const result = await pool.query(`
     SELECT cs.id, cs.company_id, cs.plan_id, cs.billing_cycle_start_date,
@@ -47,7 +47,7 @@ export async function getCompanySubscription(companyId) {
 }
 // ====================================================================
 // CREATE COMPANY SUBSCRIPTION
-// ====================================================================
+// =================================================================================================
 export async function createCompanySubscription(companyId, planId) {
     // Calculate billing cycle (first day to last day of month)
     const now = new Date();
@@ -103,7 +103,7 @@ export async function createCompanySubscription(companyId, planId) {
         },
     };
 }
-// ====================================================================
+// =========================================================================================
 // UPGRADE/DOWNGRADE PLAN
 // ====================================================================
 export async function buySubscription(companyId, planId) {
@@ -129,7 +129,7 @@ export async function changePlan(companyId, newPlanId) {
     }
     return getCompanySubscription(companyId);
 }
-// ====================================================================
+// ===================================================================================================
 // GENERATE MONTHLY INVOICE
 // ====================================================================
 export async function generateMonthlyInvoice(companyId) {

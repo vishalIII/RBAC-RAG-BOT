@@ -13,8 +13,13 @@ const GEMINI_PRICING = {
 // ====================================================================
 export async function getActivePricingRate(modelName = "gemini-2.5-flash") {
     const result = await pool.query(`
-    SELECT id, model_name, prompt_token_rate_per_1k, completion_token_rate_per_1k,
-           effective_date, end_date, is_active, created_at
+    SELECT id, model_name AS "modelName", 
+           prompt_token_rate_per_1k AS "promptTokenRatePer1k", 
+           completion_token_rate_per_1k AS "completionTokenRatePer1k",
+           effective_date AS "effectiveDate", 
+           end_date AS "endDate", 
+           is_active AS "isActive", 
+           created_at AS "createdAt"
     FROM pricing_rates
     WHERE model_name = $1
     AND is_active = true
@@ -93,7 +98,7 @@ export async function recordTokenUsage(params) {
         pricingRate.completionTokenRatePer1k,
         modelName,
         questionPreview || null,
-        contextTokens || null,
+        safeContextTokens,
     ]);
     const usageLog = result.rows[0];
     // Update company subscription totals
@@ -105,7 +110,7 @@ export async function recordTokenUsage(params) {
         updated_at = NOW()
 
     WHERE company_id = $4
-    `, [promptTokens, completionTokens, totalCents, companyId]);
+    `, [safePromptTokens, safeCompletionTokens, totalCents, companyId]);
     // Update daily aggregate
     const today = new Date().toISOString().split("T")[0];
     await pool.query(`
@@ -145,7 +150,8 @@ export async function recordTokenUsage(params) {
       AND usage_date >= $2::date
       AND usage_date < ($2::date + INTERVAL '1 month')
     `, [companyId, yearMonth]);
-    const uniqueEmployees = parseInt(uniqueEmployeeCountResult.rows[0]?.unique_employees || "0", 10) || 0;
+    const uniqueEmployees = parseInt(uniqueEmployeeCountResult.rows[0]?.unique_employees || "0", 10) ||
+        0;
     await pool.query(`
     INSERT INTO monthly_usage_aggregates (
       company_id, year_month,
@@ -335,7 +341,9 @@ export async function getTodayUsage(companyId, employeeId) {
 // ====================================================================
 export async function getEmployeeMonthlyUsage(employeeId) {
     const now = new Date();
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
+        .toISOString()
+        .split("T")[0];
     const result = await pool.query(`
     SELECT id, company_id, employee_id, usage_date,
            prompt_tokens_used, completion_tokens_used, total_tokens_used,
@@ -378,7 +386,15 @@ export async function createUsageAlert(companyId, alertType, currentUsage, limit
       company_id, alert_type, current_usage, limit_value,
       percentage_used, is_notified, alert_period, alert_date, created_at
     ) VALUES ($1, $2, $3, $4, $5, false, $6, $7, NOW())
-    `, [companyId, alertType, currentUsage, limitValue, percentageUsed, period, alertDate]);
+    `, [
+        companyId,
+        alertType,
+        currentUsage,
+        limitValue,
+        percentageUsed,
+        period,
+        alertDate,
+    ]);
 }
 // ====================================================================
 // GET UNNOTIFIED ALERTS
