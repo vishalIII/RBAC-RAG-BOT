@@ -442,8 +442,8 @@ async def ask_question_stream(
         print("no documents found")
         async def no_context():
             yield (
-                "event: metadata\n"
-                "data: {\"type\":\"no_answer\",\"reason\":\"NO_DOCUMENTS_FOUND\"}\n\n"
+                "event: no_answer\n"
+                "data: {\"reason\":\"NO_DOCUMENTS_FOUND\"}\n\n"
             )
             
             yield f"data: {NO_CONTEXT_RESPONSE}\n\n"
@@ -465,8 +465,8 @@ async def ask_question_stream(
         print("no documents found")
         async def no_context():
             yield (
-                "event: metadata\n"
-                "data: {\"type\":\"no_answer\",\"reason\":\"NO_RELEVANT_DOCUMENTS\"}\n\n"
+                "event: no_answer\n"
+                "data: {\"reason\":\"NO_RELEVANT_DOCUMENTS\"}\n\n"
             )
             
             yield f"data: {NO_CONTEXT_RESPONSE}\n\n"
@@ -488,7 +488,7 @@ async def ask_question_stream(
              yield f"data: {NO_CONTEXT_RESPONSE}\n\n"
         return no_context()
 
-    # =========================================
+    # =============================================================================
     # PROMPT
 
     #     prompt = f"""

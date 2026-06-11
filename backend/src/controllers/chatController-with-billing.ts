@@ -1,10 +1,12 @@
 import { Request, Response } from "express";
 import axios from "axios";
+import { createParser, EventSourceMessage } from "eventsource-parser";
 
 import {
   createSession,
   saveMessage,
   getRecentMessages,
+  createNoAnswerLog,
 } from "../services/chatService.js";
 
 import {
@@ -193,10 +195,29 @@ export const chat = async (
 
     let assistantStream = "";
     let totalChunkSize = 0;
+    let noAnswerReason: string | null = null;
+    const NO_CONTEXT_RESPONSE = "I could not find the answer in the documents.";
+
+    const parser = createParser({
+      onEvent(event: EventSourceMessage) {
+        try {
+          const payload = JSON.parse(event.data);
+          if (event.event === "no_answer") {
+            noAnswerReason = payload.reason;
+            console.log("Found noAnswerReason (event):", noAnswerReason);
+          } else if (event.event === "metadata" && payload.type === "no_answer") {
+            noAnswerReason = payload.reason;
+            console.log("Found noAnswerReason (metadata):", noAnswerReason);
+          }
+        } catch (err) {}
+      },
+    });
 
     // NEW: Track streaming to extract tokens
     response.data.on("data", (chunk: Buffer) => {
-      assistantStream += chunk.toString();
+      const text = chunk.toString();
+      assistantStream += text;
+      parser.feed(text);
       totalChunkSize += chunk.length;
       res.write(chunk);
     });
@@ -218,6 +239,24 @@ export const chat = async (
             content: assistantMessage,
           });
           messageId = undefined; // saveMessage returns void; cannot capture ID yet
+
+          // Fallback: Check if the content matches the "no answer" response
+          const normalizedAssistantMessage = assistantMessage.replace(/\s+/g, ' ').trim();
+          const normalizedNoContextResponse = NO_CONTEXT_RESPONSE.replace(/\s+/g, ' ').trim();
+
+          if (!noAnswerReason && normalizedAssistantMessage.includes(normalizedNoContextResponse)) {
+            noAnswerReason = "NO_DOCUMENT_FOUND";
+            console.log("Fallback triggered: Content match for 'no answer'");
+          }
+
+          if (noAnswerReason) {
+            await createNoAnswerLog({
+              companyId,
+              employeeId,
+              question,
+              reason: noAnswerReason,
+            });
+          }
 
           // Extract usage metadata from streamed response
           const usage = extractGeminiUsageMetadata(assistantStream);

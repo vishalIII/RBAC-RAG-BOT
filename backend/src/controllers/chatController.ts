@@ -1,17 +1,19 @@
 import { Request, Response } from "express";
 import axios from "axios";
+import { createParser, EventSourceMessage } from "eventsource-parser";
 
 import {
   createSession,
   saveMessage,
-  getRecentMessages, createNoAnswerLog
+  getRecentMessages,
+  createNoAnswerLog,
 } from "../services/chatService.js";
 
 import {
   buildSessionTitle,
   formatConversationHistory,
   extractSseData,
-  normalizeSessionId
+  normalizeSessionId,
 } from "../utils/chatHelpers.js";
 
 type ChatRequestBody = {
@@ -100,34 +102,56 @@ export const chat = async (
     });
 
     let assistantStream = "";
+    // Must match NO_CONTEXT_RESPONSE in chat.py exactly
+    const NO_CONTEXT_RESPONSE = "I could not find the answer in the documents.";
     let noAnswerReason: string | null = null;
+        const parser = createParser({
+      onEvent(event: EventSourceMessage) {
+        // Only try to parse JSON if it's an event we expect to be JSON
+        try {
+          if (event.event === "no_answer") {
+            const payload = JSON.parse(event.data);
+            noAnswerReason = payload.reason;
+            console.log("Found noAnswerReason (event):", noAnswerReason);
+          } else if (event.event === "metadata") {
+            const payload = JSON.parse(event.data);
+            if (payload.type === "no_answer") {
+              noAnswerReason = payload.reason;
+              console.log("Found noAnswerReason (metadata):", noAnswerReason);
+            }
+          }
+        } catch (err) {
+          // Ignore parsing errors for regular text tokens
+        }
+      },
+    });
+
     response.data.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
-
       assistantStream += text;
-
-      const eventMatch = /event:\s*no_answer\s*[\r\n]+data:\s*(.+)/.exec(text);
-
-      if (eventMatch) {
-        try {
-          const payload = JSON.parse(eventMatch[1]);
-          noAnswerReason = payload.reason;
-        } catch {}
-      }
-
+      console.log("Streaming chunk received..."); // Minimal log to verify activity
+      parser.feed(text);
       res.write(chunk);
     });
 
     response.data.on("end", async () => {
       try {
+        console.log("Stream ended. Processing final message...");
         const assistantMessage = extractSseData(assistantStream).trim();
 
-        if (assistantMessage) {
-          await saveMessage({
-            sessionId,
-            role: "assistant",
-            content: assistantMessage,
-          });
+        const normalizedAssistantMessage = assistantMessage.replace(/\s+/g, ' ').trim();
+        const normalizedNoContextResponse = NO_CONTEXT_RESPONSE.replace(/\s+/g, ' ').trim();
+
+        await saveMessage({
+          sessionId,
+          role: "assistant",
+          content: assistantMessage,
+        });
+        // Fallback: If no metadata event was caught, but the content matches our "no answer" string
+        // This happens when the LLM itself generates the rejection message.
+        if (!noAnswerReason && normalizedAssistantMessage.includes(normalizedNoContextResponse)) { // Use normalized strings for robust comparison
+          console.log("Fallback triggered: Content match for 'no answer'");
+          noAnswerReason = "LLM_REJECTED_CONTEXT";
         }
 
         if (noAnswerReason) {
