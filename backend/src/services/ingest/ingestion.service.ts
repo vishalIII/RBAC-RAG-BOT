@@ -1,6 +1,9 @@
 import { spawn } from "child_process";
 import { fileURLToPath } from "url";
-import { join } from "path";
+import { join, dirname } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export class IngestionService {
   static async ingestDocument(
@@ -15,10 +18,16 @@ export class IngestionService {
     documentId: string,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
-      const rootDir = process.cwd();
-      const pythonScriptPath = join(rootDir, "src/python_rag/ingest.py");
-      // Use the virtual env python path from your package.json
-      const pythonExecutable = join(rootDir, ".venv/Scripts/python.exe");
+      // Resolve path to python script relative to project root
+      // Assuming project structure: backend/src/python_rag/ingest.py
+      const rootDir = join(__dirname, "../../../"); 
+      const pythonScriptPath = join(rootDir, "src", "python_rag", "ingest.py");
+      
+      // Use the virtual env python path. Note: Use 'python' for Linux/macOS or 'python.exe' for Windows
+      const isWindows = process.platform === "win32";
+      const pythonExecutable = isWindows 
+        ? join(rootDir, ".venv", "Scripts", "python.exe")
+        : join(rootDir, ".venv", "bin", "python");
 
       console.log(`[INGEST] Spawning Python for: ${title} (${documentId})`);
       
@@ -31,7 +40,7 @@ export class IngestionService {
         JSON.stringify(department_ids),
         company_id,
         uploadedBy,
-        created_at,
+        String(created_at),
         documentId,
       ]);
 

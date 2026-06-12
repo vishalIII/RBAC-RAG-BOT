@@ -1,5 +1,5 @@
 import "dotenv/config";
-
+import "./src/workers/documentIngestion.worker.js"
 async function start() {
   try {
     const { default: app } = await import("./src/app.js");
