@@ -16,6 +16,7 @@ export class IngestionService {
     uploadedBy: string,
     created_at: string,
     documentId: string,
+    active: boolean,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       // Resolve path to python script relative to project root
@@ -42,6 +43,7 @@ export class IngestionService {
         uploadedBy,
         String(created_at),
         documentId,
+        String(active),
       ]);
 
       pythonProcess.stdout.on("data", (data) => {

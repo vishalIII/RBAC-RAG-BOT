@@ -233,6 +233,7 @@ def build_metadata(
     department_ids: list[str],
     uploaded_by: str,
     created_at: str,
+    active: bool = True,
 ) -> dict:
 
     content = chunk.page_content
@@ -259,6 +260,7 @@ def build_metadata(
         "parent_id": pdf_path.stem,
         "source": pdf_path.name,
         "page": page,
+        "active": active,
         # ==========================================================================
         # DOCUMENT STRUCTURE
         "section": content[:80],
@@ -319,6 +321,8 @@ def ingest_pdf() -> None:
 
     document_id = sys.argv[9]
 
+    active = sys.argv[10].lower() == 'true' if len(sys.argv) > 10 else True
+
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
@@ -361,6 +365,7 @@ def ingest_pdf() -> None:
             department_ids=department_ids,
             uploaded_by=uploaded_by,
             created_at=created_at,
+            active=active,
         )
 
         chunk.metadata.update(metadata)

@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS documents (
     -- RAG fields
     status VARCHAR(20) NOT NULL DEFAULT 'queued',
 
+    active BOOLEAN NOT NULL DEFAULT true,
+
     page_count INTEGER,
     chunk_count INTEGER NOT NULL DEFAULT 0,
     embedding_tokens BIGINT NOT NULL DEFAULT 0,
@@ -39,6 +41,8 @@ CREATE TABLE IF NOT EXISTS documents (
 
     error_message TEXT,
     processed_at TIMESTAMPTZ,
+
+
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -93,3 +97,6 @@ CREATE INDEX IF NOT EXISTS document_departments_department_id_idx
 
 CREATE INDEX IF NOT EXISTS document_departments_document_id_idx
     ON document_departments(document_id);
+
+
+-- ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
