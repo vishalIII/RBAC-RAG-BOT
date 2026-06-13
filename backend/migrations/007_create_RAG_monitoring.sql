@@ -78,37 +78,58 @@ ON document_usage_logs(company_id);
 
 
 
-CREATE TABLE IF NOT EXISTS message_feedback (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+-- CREATE TABLE IF NOT EXISTS message_feedback (
+--     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-    company_id UUID NOT NULL
-        REFERENCES companies(id)
-        ON DELETE CASCADE,
+--     company_id UUID NOT NULL
+--         REFERENCES companies(id)
+--         ON DELETE CASCADE,
 
-    message_id UUID NOT NULL
-        REFERENCES chat_messages(id)
-        ON DELETE CASCADE,
+--     message_id UUID NOT NULL
+--         REFERENCES chat_messages(id)
+--         ON DELETE CASCADE,
 
-    employee_id UUID
-        REFERENCES employees(id)
-        ON DELETE SET NULL,
+--     employee_id UUID
+--         REFERENCES employees(id)
+--         ON DELETE SET NULL,
 
-    rating SMALLINT NOT NULL
-        CHECK (rating IN (-1, 1)),
+--     rating SMALLINT NOT NULL
+--         CHECK (rating IN (-1, 1)),
 
 
 
     
+--     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+--     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- );
+
+CREATE TABLE IF NOT EXISTS  message_feedback(
+    id UUID PRIMARY KEY  DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL
+        REFERENCES companies(id)
+        ON DELETE CASCADE,
+
+        employee_id UUID
+        REFERENCES employees(id)
+        ON DELETE SET NULL,
+
+    question_message_id UUID NOT NULL,
+    answer_message_id UUID NOT NULL,
+
+    rating SMALLINT NOT NULL
+        CHECK (rating IN (-1, 1)),
+    comment TEXT,
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
 
 CREATE INDEX IF NOT EXISTS message_feedback_company_id_idx 
 ON message_feedback(company_id);
 
 CREATE INDEX IF NOT EXISTS message_feedback_message_id_idx 
-ON message_feedback(message_id);
+ON message_feedback(answer_message_id);
 
 CREATE INDEX IF NOT EXISTS message_feedback_employee_id_idx 
 ON message_feedback(employee_id);
-

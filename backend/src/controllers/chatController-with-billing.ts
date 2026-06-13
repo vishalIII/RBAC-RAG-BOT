@@ -153,12 +153,13 @@ export const chat = async (
     const conversationHistory =
       formatConversationHistory(recentMessages);
 
-    // NEW: Save user message. (chatService.saveMessage currently returns void)
-    await saveMessage({
+    // Capture User Message ID (Requires chatService.saveMessage to return the ID)
+    const userMessage = await saveMessage({
       sessionId: sessionId!,
       role: "user",
       content: question.trim(),
     });
+    const questionMessageId = (userMessage as any)?.id;
 
     res.setHeader("X-Session-Id", sessionId);
     res.setHeader(
@@ -232,13 +233,14 @@ export const chat = async (
           extractSseData(assistantStream).trim();
 
         if (assistantMessage) {
-          // Save assistant message to database
-          await saveMessage({
+          // Save assistant message and capture ID
+          const savedAssistantMsg = await saveMessage({
             sessionId: sessionId!,
             role: "assistant",
             content: assistantMessage,
           });
-          messageId = undefined; // saveMessage returns void; cannot capture ID yet
+          const answerMessageId = (savedAssistantMsg as any)?.id;
+          messageId = answerMessageId; // Sync for token tracking record
 
           // Fallback: Check if the content matches the "no answer" response
           const normalizedAssistantMessage = assistantMessage.replace(/\s+/g, ' ').trim();
@@ -301,6 +303,8 @@ export const chat = async (
                   promptTokens,
                   completionTokens,
                   totalTokens,
+                  questionMessageId,
+                  answerMessageId,
                   costCents: Math.ceil(
                     (promptTokens / 1000) * 1 +
                     (completionTokens / 1000) * 4

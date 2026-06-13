@@ -48,8 +48,8 @@ export async function saveMessage({
   promptTokens = 0,
   completionTokens = 0,
   totalTokens = 0,
-}: SaveMessageParams): Promise<void> {
-  await pool.query(
+}: SaveMessageParams): Promise<{ id: string }> {
+  const result = await pool.query<{ id: string }>(
     `
     INSERT INTO chat_messages (
       session_id,
@@ -60,6 +60,7 @@ export async function saveMessage({
       total_tokens
     )
     VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING id
     `,
     [
       sessionId,
@@ -70,6 +71,8 @@ export async function saveMessage({
       totalTokens,
     ]
   );
+
+  return result.rows[0];
 }
 
 export async function getRecentMessages(

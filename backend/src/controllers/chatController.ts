@@ -76,11 +76,12 @@ export const chat = async (
 
     const conversationHistory = formatConversationHistory(recentMessages);
 
-    await saveMessage({
+    const userMessage = await saveMessage({
       sessionId,
       role: "user",
       content: question.trim(),
     });
+    const questionMessageId = userMessage.id;
 
     res.setHeader("X-Session-Id", sessionId);
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -142,11 +143,13 @@ export const chat = async (
         const normalizedAssistantMessage = assistantMessage.replace(/\s+/g, ' ').trim();
         const normalizedNoContextResponse = NO_CONTEXT_RESPONSE.replace(/\s+/g, ' ').trim();
 
-        await saveMessage({
+        const savedAssistantMsg = await saveMessage({
           sessionId,
           role: "assistant",
           content: assistantMessage,
         });
+        const answerMessageId = savedAssistantMsg.id;
+
         // Fallback: If no metadata event was caught, but the content matches our "no answer" string
         // This happens when the LLM itself generates the rejection message.
         if (!noAnswerReason && normalizedAssistantMessage.includes(normalizedNoContextResponse)) { // Use normalized strings for robust comparison
@@ -162,6 +165,16 @@ export const chat = async (
             reason: noAnswerReason,
           });
         }
+
+        // Send metadata with IDs to the frontend
+        res.write(
+          `data: ${JSON.stringify({
+            _metadata: {
+              questionMessageId,
+              answerMessageId,
+            },
+          })}\n\n`
+        );
       } catch (error: any) {
         console.error("Could not save assistant message:", error.message);
       }
